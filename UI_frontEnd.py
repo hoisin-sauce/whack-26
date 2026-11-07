@@ -44,22 +44,25 @@ class QuantDashboard(QWidget):
         
     def initUI(self):
         self.setWindowTitle("Autonomous Quant Researcher - Dashboard")
-        self.resize(800, 720)
+        self.resize(800, 780)
         
         main_layout = QVBoxLayout()
         
         # Title Header
-        self.title_label = QLabel(" Brevan Howard Track: Autonomous Validation Engine")
+        self.title_label = QLabel("Brevan Howard Track: Autonomous Validation Engine")
         self.title_label.setStyleSheet("font-weight: bold; font-size: 14pt; margin-bottom: 5px;")
         main_layout.addWidget(self.title_label)
         
-        # --- CONFIGURATION & METADATA GROUP (User-driven, no hardcoded defaults) ---
-        config_group = QGroupBox(" User Metadata & Test Restrictions")
+        # --- CONFIGURATION & METADATA GROUP (User-driven) ---
+        config_group = QGroupBox("User Metadata, Dataset Description & Test Restrictions")
         form_layout = QFormLayout()
         
         # Inputs start completely empty with descriptive placeholders
         self.strategy_name_input = QLineEdit()
         self.strategy_name_input.setPlaceholderText("e.g. Momentum_Alpha_v1")
+        
+        self.data_desc_input = QLineEdit()
+        self.data_desc_input.setPlaceholderText("e.g. Daily S&P 500 returns with macroeconomic indicators")
         
         self.periods_input = QLineEdit()
         self.periods_input.setPlaceholderText("e.g. 252 ")
@@ -71,6 +74,7 @@ class QuantDashboard(QWidget):
         self.max_decay_input.setPlaceholderText("e.g. 0.25")
         
         form_layout.addRow("Strategy Name:", self.strategy_name_input)
+        form_layout.addRow("Dataset Description:", self.data_desc_input)
         form_layout.addRow("Periods Per Year:", self.periods_input)
         form_layout.addRow("Min Sharpe Threshold:", self.min_sharpe_input)
         form_layout.addRow("Max OOS Decay Tolerance:", self.max_decay_input)
@@ -88,8 +92,8 @@ class QuantDashboard(QWidget):
         self.log_output = DragDropTextEdit(self)
         self.log_output.setReadOnly(True)
         self.log_output.setPlaceholderText(
-            "📥 Drop your dataset (.csv, .xls, .xlsx) anywhere in this box...\n"
-            "Make sure to fill out the user restrictions and metadata above before running!"
+            "Drop your dataset (.csv, .xls, .xlsx) anywhere in this box...\n"
+            "Make sure to fill out the description, metadata, and restrictions above before running!"
         )
         main_layout.addWidget(self.log_output)
         
@@ -107,7 +111,7 @@ class QuantDashboard(QWidget):
             elif file_ext in ['.xls', '.xlsx']:
                 self.loaded_dataframe = pd.read_excel(file_path)
             else:
-                self.log_output.append(f" Unsupported file extension: {file_ext}. Please use .csv, .xls, or .xlsx")
+                self.log_output.append(f"Unsupported file extension: {file_ext}. Please use .csv, .xls, or .xlsx")
                 return
                 
             self.log_output.append(f"Successfully loaded dataset! Shape: {self.loaded_dataframe.shape}")
@@ -116,10 +120,13 @@ class QuantDashboard(QWidget):
             self.log_output.append(f"Error parsing file with Pandas: {str(e)}")
 
     def run_validation(self):
-        # Validate that user has filled out required parameters
         strategy_name = self.strategy_name_input.text().strip()
         if not strategy_name:
             strategy_name = "Unnamed_Strategy"
+            
+        data_description = self.data_desc_input.text().strip()
+        if not data_description:
+            data_description = "No description provided."
 
         try:
             periods_per_year = float(self.periods_input.text())
@@ -130,7 +137,8 @@ class QuantDashboard(QWidget):
             return
 
         self.log_output.append(f"\n--- [GUI] Triggering Validation for '{strategy_name}' ---")
-        self.log_output.append(f" User Constraints -> Periods: {periods_per_year} | Min Sharpe: {min_sharpe} | Max Decay: {max_decay}")
+        self.log_output.append(f" Dataset Description: {data_description}")
+        self.log_output.append(f" Constraints -> Periods: {periods_per_year} | Min Sharpe: {min_sharpe} | Max Decay: {max_decay}")
 
         # Handle Data Source (Dropped file vs. Synthetic fallback)
         if self.loaded_dataframe is not None:
@@ -160,7 +168,7 @@ class QuantDashboard(QWidget):
         base_params = {"window_size": 14, "learning_rate": 0.01, "min_sharpe_limit": min_sharpe}
 
         try:
-            # Execute master backend validation engine with user-injected metadata
+            # Execute backend validation engine with user metadata & description
             passed = validation_engine(
                 winning_returns=winning_returns,
                 all_trial_sharpes=all_trial_sharpes,
@@ -175,12 +183,12 @@ class QuantDashboard(QWidget):
             )
             
             if passed:
-                self.log_output.append(f"SUCCESS: '{strategy_name}' passed all validation gates!")
+                self.log_output.append(f" SUCCESS: '{strategy_name}' passed all validation gates!")
             else:
-                self.log_output.append(f"FAIL: '{strategy_name}' rejected under user restrictions.")
+                self.log_output.append(f" FAIL: '{strategy_name}' rejected under user restrictions.")
                 
         except Exception as e:
-            self.log_output.append(f"Engine Execution Error: {str(e)}")
+            self.log_output.append(f" Engine Execution Error: {str(e)}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
