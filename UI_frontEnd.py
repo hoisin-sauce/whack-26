@@ -4,16 +4,12 @@ import pandas as pd
 import numpy as np
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, 
-    QTextEdit, QLineEdit, QGroupBox, QFormLayout
+    QTextEdit, QLineEdit, QGroupBox, QFormLayout, QHBoxLayout
 )
 from PyQt6.QtCore import Qt
 
 # Import validation engine from stats_test.py
-try:
-    from stats_test import validation_engine
-except ImportError:
-    def validation_engine(*args, **kwargs):
-        return True # Fallback mock
+from stats_test import validation_engine
 
 class DragDropTextEdit(QTextEdit):
     """Custom QTextEdit widget that accepts dropped files (.csv, .xls, .xlsx)."""
@@ -44,20 +40,19 @@ class QuantDashboard(QWidget):
         
     def initUI(self):
         self.setWindowTitle("Autonomous Quant Researcher - Dashboard")
-        self.resize(800, 780)
+        self.resize(950, 850)
         
         main_layout = QVBoxLayout()
         
-        # Title Header
+        # --- Title Header ---
         self.title_label = QLabel("Brevan Howard Track: Autonomous Validation Engine")
         self.title_label.setStyleSheet("font-weight: bold; font-size: 14pt; margin-bottom: 5px;")
         main_layout.addWidget(self.title_label)
         
-        # --- CONFIGURATION & METADATA GROUP (User-driven) ---
+        # --- CONFIGURATION & METADATA GROUP ---
         config_group = QGroupBox("User Metadata, Dataset Description & Test Restrictions")
         form_layout = QFormLayout()
         
-        # Inputs start completely empty with descriptive placeholders
         self.strategy_name_input = QLineEdit()
         self.strategy_name_input.setPlaceholderText("e.g. Momentum_Alpha_v1")
         
@@ -65,7 +60,7 @@ class QuantDashboard(QWidget):
         self.data_desc_input.setPlaceholderText("e.g. Daily S&P 500 returns with macroeconomic indicators")
         
         self.periods_input = QLineEdit()
-        self.periods_input.setPlaceholderText("e.g. 252 ")
+        self.periods_input.setPlaceholderText("e.g. 252")
         
         self.min_sharpe_input = QLineEdit()
         self.min_sharpe_input.setPlaceholderText("e.g. 1.0")
@@ -88,22 +83,48 @@ class QuantDashboard(QWidget):
         self.run_btn.clicked.connect(self.run_validation)
         main_layout.addWidget(self.run_btn)
         
-        # --- LOG BOX & DROP ZONE ---
+        # --- SPLIT LAYOUT FOR LOGS AND SUMMARY REPORT ---
+        results_layout = QHBoxLayout()
+        
+        # Left Box: Activity & File Drop Log
+        log_group = QGroupBox("Dataset Drop Zone & Activity Log")
+        log_layout = QVBoxLayout()
         self.log_output = DragDropTextEdit(self)
         self.log_output.setReadOnly(True)
         self.log_output.setPlaceholderText(
             "Drop your dataset (.csv, .xls, .xlsx) anywhere in this box...\n"
             "Make sure to fill out the description, metadata, and restrictions above before running!"
         )
-        main_layout.addWidget(self.log_output)
+        log_layout.addWidget(self.log_output)
+        log_group.setLayout(log_layout)
+        results_layout.addWidget(log_group)
         
+        # Right Box: Dedicated Summary Report Area
+        summary_group = QGroupBox("Validation Summary Report")
+        summary_layout = QVBoxLayout()
+        self.summary_output = QTextEdit()
+        self.summary_output.setReadOnly(True)
+        self.summary_output.setPlaceholderText(
+            "Final output metrics returned by validation_engine will appear here..."
+        )
+        self.summary_output.setStyleSheet("""
+            background-color: #ffffff; 
+            color: #222222; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            font-size: 11pt;
+        """)
+        summary_layout.addWidget(self.summary_output)
+        summary_group.setLayout(summary_layout)
+        results_layout.addWidget(summary_group)
+        
+        main_layout.addLayout(results_layout)
         self.setLayout(main_layout)
         
     def handle_dropped_file(self, file_path):
         self.dropped_file_path = file_path
         file_ext = os.path.splitext(file_path)[1].lower()
         
-        self.log_output.append(f"\n File dropped: {os.path.basename(file_path)}")
+        self.log_output.append(f"\nFile dropped: {os.path.basename(file_path)}")
         
         try:
             if file_ext == '.csv':
@@ -133,12 +154,17 @@ class QuantDashboard(QWidget):
             min_sharpe = float(self.min_sharpe_input.text())
             max_decay = float(self.max_decay_input.text())
         except ValueError:
-            self.log_output.append("\n Missing or Invalid Inputs: Please fill in all restriction and metadata fields with valid numbers before running.")
+            self.log_output.append("\nMissing or Invalid Inputs: Please fill in all restriction and metadata fields with valid numbers before running.")
             return
 
         self.log_output.append(f"\n--- [GUI] Triggering Validation for '{strategy_name}' ---")
-        self.log_output.append(f" Dataset Description: {data_description}")
-        self.log_output.append(f" Constraints -> Periods: {periods_per_year} | Min Sharpe: {min_sharpe} | Max Decay: {max_decay}")
+        self.log_output.append(f"Dataset Description: {data_description}")
+        self.log_output.append(f"Constraints -> Periods: {periods_per_year} | Min Sharpe: {min_sharpe} | Max Decay: {max_decay}")
+
+        # Clear and initialize the Summary Report view
+        self.summary_output.clear()
+        self.summary_output.append(f"=== SUMMARY REPORT: {strategy_name} ===")
+        self.summary_output.append(f"Description: {data_description}\n")
 
         # Handle Data Source (Dropped file vs. Synthetic fallback)
         if self.loaded_dataframe is not None:
@@ -168,8 +194,8 @@ class QuantDashboard(QWidget):
         base_params = {"window_size": 14, "learning_rate": 0.01, "min_sharpe_limit": min_sharpe}
 
         try:
-            # Execute backend validation engine with user metadata & description
-            passed = validation_engine(
+            # Execute validation engine from stats_test.py
+            result = validation_engine(
                 winning_returns=winning_returns,
                 all_trial_sharpes=all_trial_sharpes,
                 predictions=predictions,
@@ -182,13 +208,23 @@ class QuantDashboard(QWidget):
                 periods_per_year=periods_per_year
             )
             
-            if passed:
-                self.log_output.append(f" SUCCESS: '{strategy_name}' passed all validation gates!")
+            # Parse and render output dictionary in the Summary Report area
+            if isinstance(result, dict):
+                passed = result.get("passed", False)
+                status = "PASSED" if passed else "REJECTED"
+                self.summary_output.append(f"Status: {status}")
+                for key, val in result.items():
+                    if key != "passed":
+                        self.summary_output.append(f"{key.replace('_', ' ').title()}: {val}")
             else:
-                self.log_output.append(f" FAIL: '{strategy_name}' rejected under user restrictions.")
+                status = "PASSED" if result else "REJECTED"
+                self.summary_output.append(f"Validation Status: {status}")
+                
+            self.log_output.append("Validation cycle completed successfully.")
                 
         except Exception as e:
-            self.log_output.append(f" Engine Execution Error: {str(e)}")
+            self.log_output.append(f"Engine Execution Error: {str(e)}")
+            self.summary_output.append(f"Error executing engine: {str(e)}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
