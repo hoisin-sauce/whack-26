@@ -56,7 +56,7 @@ def test_auto_run_starts_on_drop_and_loads_the_report(qtbot, tmp_path: Path) -> 
     assert calls[0]["final_judge"] is True
     assert calls[0]["model_search"] is True
     assert calls[0]["validate"] is True
-    assert calls[0]["target"] == "y"
+    assert calls[0]["target"] is None
 
     release.set()
     _wait_for(
@@ -164,6 +164,38 @@ def test_dashboard_propagates_auto_run_to_new_tabs(qtbot, tmp_path: Path) -> Non
         lambda: "DASHBOARD-REPORT" in workspace.summary_output.toPlainText(),
     )
     assert calls
+
+
+def test_target_selector_can_override_auto_detect(
+    qtbot, tmp_path: Path
+) -> None:
+    dataset = make_ui_dataset(tmp_path / "target.csv")
+    run_dir = tmp_path / "run"
+    write_fragment(run_dir, "<h1>Final model judgement</h1><p>TARGET-REPORT</p>")
+    calls: list[dict] = []
+
+    def fake_runner(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(run_dir=run_dir)
+
+    workspace = UI_frontEnd.DatasetWorkspace(pipeline_runner=fake_runner)
+    qtbot.addWidget(workspace)
+    workspace.handle_dropped_file(str(dataset))
+
+    labels = [
+        workspace.target_combo.itemText(index)
+        for index in range(workspace.target_combo.count())
+    ]
+    assert labels[0] == "Auto-detect"
+    assert "y" in labels
+
+    workspace.target_combo.setCurrentIndex(labels.index("y"))
+    workspace.run_btn.click()
+    _wait_for(
+        qtbot,
+        lambda: "TARGET-REPORT" in workspace.summary_output.toPlainText(),
+    )
+    assert calls[-1]["target"] == "y"
 
 
 def test_auto_run_is_isolated_between_tabs(qtbot, tmp_path: Path) -> None:

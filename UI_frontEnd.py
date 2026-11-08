@@ -11,6 +11,7 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -31,9 +32,9 @@ from stats_engine import build_linear_model, r2_score, trial_sharpes, validation
 # The validation dashboard requires a continuous target column. This contract
 # is enforced by the engine as well, so a caller cannot bypass it.
 TARGET_CONTRACT = (
-    "The last column must be a continuous return-like target with finite values, "
-    "non-zero variance, and at least three distinct values. Binary labels and "
-    "constant targets are rejected."
+    "Target selection defaults to Auto-detect. The pipeline supports continuous, "
+    "binary, multiclass, and count targets. The legacy validation path still "
+    "requires the last column to be a continuous return-like target."
 )
 
 PIPELINE_BUTTON_IDLE = "Run Pipeline & Load Report"
@@ -571,8 +572,16 @@ class DatasetWorkspace(QWidget):
             "e.g. Daily S&P 500 returns with macroeconomic indicators"
         )
 
+        self.target_combo = QComboBox()
+        self.target_combo.addItem("Auto-detect", None)
+        self.target_combo.setToolTip(
+            "Auto-detect lets the pipeline choose the target. Select a column "
+            "to override it."
+        )
+
         metadata_layout.addRow("Strategy Name", self.strategy_name_input)
         metadata_layout.addRow("Dataset Description", self.data_desc_input)
+        metadata_layout.addRow("Target Column", self.target_combo)
         metadata_container.addLayout(metadata_layout)
         metadata_container.addStretch()
 
@@ -778,9 +787,7 @@ class DatasetWorkspace(QWidget):
             self._show_report_error(message)
             return
 
-        target = None
-        if len(self.loaded_dataframe.columns):
-            target = str(self.loaded_dataframe.columns[-1])
+        target = self.target_combo.currentData()
         description = self.data_desc_input.text().strip() or None
         runner = self._pipeline_runner or self._default_pipeline_runner
         kwargs = {
@@ -855,6 +862,17 @@ class DatasetWorkspace(QWidget):
         self.log_output.append(f"\nPipeline failed: {message}")
         self._show_report_error(f"The pipeline failed: {message}")
 
+    def _populate_target_columns(self) -> None:
+        """Refresh the target selector from the loaded frame."""
+        self.target_combo.blockSignals(True)
+        self.target_combo.clear()
+        self.target_combo.addItem("Auto-detect", None)
+        if self.loaded_dataframe is not None:
+            for column in self.loaded_dataframe.columns:
+                self.target_combo.addItem(str(column), str(column))
+        self.target_combo.setCurrentIndex(0)
+        self.target_combo.blockSignals(False)
+
     def browse_for_dataset(self) -> None:
         """Open a file picker and submit the chosen dataset."""
         if self.dropped_file_path:
@@ -894,6 +912,7 @@ class DatasetWorkspace(QWidget):
             self.log_output.append(
                 f"Columns detected: {list(self.loaded_dataframe.columns)}"
             )
+            self._populate_target_columns()
             self.log_output.append(TARGET_CONTRACT)
 
             dataset_label = os.path.splitext(os.path.basename(file_path))[0].strip()
