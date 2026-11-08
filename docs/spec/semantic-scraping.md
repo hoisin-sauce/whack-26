@@ -116,9 +116,10 @@ preload.
   cosine over BLOBs.
 - No full-text PDFs, paywalled content, login walls, or redistribution. Store
   metadata, summaries, and links only.
-- No general web search API. Start with references and links already returned by
-  OpenAlex, arXiv, Wikipedia, HF Hub, and Zenodo. Add a compliant web-search
-  adapter only after a legal review.
+- No general web search API in the original slice. Start with references and
+  links already returned by OpenAlex, arXiv, Wikipedia, HF Hub, and Zenodo. The
+  optional key-gated Google/Brave `websearch` adapter now exists but is not part
+  of the default crawl.
 - No hierarchy level-shifting for the user-dataset classifier. Scraped
   resources do use the hierarchy placement/promotion path added after this
   plan; the dataset classifier remains create/assign.

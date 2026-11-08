@@ -36,7 +36,7 @@ Copy-Item .env.example .env
 python -m whack26 doctor
 ```
 
-`.env` is gitignored. Never commit it. Required keys: `DEEPSEEK_API_KEY` (LLM), `GEMINI_API_KEY` (embeddings), `OPENALEX_API_KEY`. Optional: `HF_TOKEN`, `ZENODO_TOKEN`, Cloudflare/Groq/Jina. No general web search key is required; Wikipedia REST is the only web source.
+`.env` is gitignored. Never commit it. Required keys: `DEEPSEEK_API_KEY` (LLM), `GEMINI_API_KEY` (embeddings), `OPENALEX_API_KEY`. Optional: `HF_TOKEN`, `ZENODO_TOKEN`, `S2_API_KEY`, `KAGGLE_API_TOKEN`, `DATAGOV_API_KEY`, and `WEBSEARCH_PROVIDER`/`WEBSEARCH_API_KEY`/`WEBSEARCH_CX`. No general web search key is required; Wikipedia REST is the default web fallback, and the Google/Brave adapter registers only when configured.
 
 ## Commands
 
