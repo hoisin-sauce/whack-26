@@ -27,6 +27,44 @@ def run(df: pd.DataFrame, seed: int = 0) -> dict:
 | `model_summary` | no | dict | Coefficients, group means, fitted parameters, convergence flag |
 | `notes` | no | str | Caveats, missing-data handling, transformations |
 
+### Statistical validation surface
+
+The four-layer validator needs to fit on a training split and predict held-out
+rows. Generated modules therefore also implement two private helpers and a
+module-level hyperparameter dict:
+
+```python
+PARAMETERS = {"ridge": 1e-3}
+
+
+def _fit(df: pd.DataFrame, seed: int = 0, params: dict | None = None):
+    """Fit on df and return a model object. The target is available here."""
+
+
+def _predict(model, df: pd.DataFrame):
+    """Return one prediction per row. df has features only; never read the target."""
+```
+
+`run` must use the same path:
+
+```python
+def run(df: pd.DataFrame, seed: int = 0) -> dict:
+    model = _fit(df, seed, PARAMETERS)
+    predict_frame = df.drop(columns=[target]) if target in df.columns else df
+    return {"predictions": _predict(model, predict_frame), "target": target}
+```
+
+Rules:
+
+- `PARAMETERS` contains at least one numeric hyperparameter that `_fit` uses.
+  Zero-valued floats are filtered before Layer 4 so `pss` cannot pass vacuously.
+- The linear and interaction families default to a small positive `ridge`; the
+  group-comparison family defaults to `min_group_size = 2`.
+- `_predict` receives a frame without the target column. It must return exactly
+  one finite prediction per input row.
+- Missing helpers are a static **warning**, not an error. The validator then
+  uses the saved predictions for Layers 1-2 and marks Layers 3-4 `skipped`.
+
 Metadata lives outside the code:
 
 ```json
@@ -122,8 +160,11 @@ Before execution:
 7. Reject the target column in `required_columns` and `optional_columns`.
 8. Require `len(assumptions) >= 1`, non-empty `rationale`, and code ≤ 20 KB.
 9. Reject string literals containing `http://`, `https://`, `socket`, or obvious file paths used in calls.
+10. Warn (do not reject) when `_fit`, `_predict`, or `PARAMETERS` is missing, when
+    `_predict` references the target column, or when no positive hyperparameter
+    is declared.
 
-A static failure triggers one repair attempt. A second failure rejects the hypothesis and generates a replacement with the same family.
+A static failure triggers one repair attempt. A second failure rejects the hypothesis and generates a replacement with the same family. Warnings are recorded in the artifact and in the validation report.
 
 ## Execution
 
@@ -188,6 +229,9 @@ No hypothesis tests and no p-values. The screen is context for generation and fo
 - No banned imports, calls, or file/network access.
 - Each cites at least one factor or explicitly justifies having none; each cites at least one source ID when factors are used.
 - The artifact contains the code, `code_sha256`, `generation_history`, and `execution` result.
+- When `--validate` is used, each hypothesis has a `validation` report; a
+  missing fit/predict surface produces a partial/in-sample report rather than a
+  run failure.
 
 ## Module layout
 

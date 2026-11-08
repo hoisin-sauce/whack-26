@@ -156,9 +156,16 @@ GET https://en.wikipedia.org/api/rest_v1/page/summary/<title>
 
 Keyless. Set a descriptive `User-Agent` with contact information (`whack26-research/0.1 (https://github.com/hoisin-sauce/whack-26)`); Wikimedia rejects agents without one with HTTP 403. Attribute CC BY-SA. This is an encyclopedic fallback, **not** general web search; label it as such in the artifact.
 
-### Not in this slice
+### Adapter status
 
-General web search is not in this slice. Brave Search API no longer has a free plan (as of 2026-11: a $5 monthly credit, then $5 per 1,000 queries), so it is not a free-path dependency. If true general web search becomes a requirement, add Google Programmable Search JSON API as an optional adapter (100 free queries/day, but it needs a key and a Programmable Search Engine ID). Semantic Scholar (key-gated, 429-prone), DataCite/OpenML/Dataverse/data.gov/Kaggle (stretch, not core). See `docs/research/free-apis.md` on `research/free-apis` for the full comparison.
+Twelve source names are declared in `whack26/research/base.py`. Nine are
+registered in `_build_adapters`: `openalex`, `arxiv`, `huggingface`, `zenodo`,
+`wikipedia`, `dataverse`, `openml`, `datagov`, and `datacite`. Three modules are
+implemented and unit-tested but **not registered**: `kaggle`,
+`semantic_scholar`, and `websearch`; a generated query for those sources
+currently yields `unknown_source`. General web search is therefore not part of
+the default run. (Design note: Brave Search lost its free plan in 2026-11;
+Google Programmable Search remains a key-gated option.)
 
 ## 5. Normalization and deduplication
 
@@ -167,7 +174,11 @@ General web search is not in this slice. Brave Search API no longer has a free p
 ```python
 class ResearchRecord(BaseModel):
     id: str                    # "<source>:<source_id>"
-    source: Literal["openalex", "arxiv", "huggingface", "zenodo", "wikipedia"]
+    source: Literal[
+        "openalex", "arxiv", "huggingface", "zenodo", "wikipedia",
+        "kaggle", "dataverse", "openml", "datagov", "datacite",
+        "semantic_scholar", "websearch",
+    ]
     source_id: str
     title: str
     abstract: str | None       # <= 4,000 chars
@@ -184,8 +195,8 @@ class ResearchRecord(BaseModel):
 
 - Strip HTML and collapse whitespace.
 - Dedup priority: DOI → arXiv ID → OpenAlex ID → HF ID → Zenodo ID → `sha256(normalized title + first author + year)`.
-- Merge duplicates; keep the record with the highest per-type source priority (papers: OpenAlex > arXiv; datasets: Zenodo > HF; web: Wikipedia).
-- Rank: `0.55 * cos(embed(summary), embed(title + " " + abstract)) + 0.25 * source_prior + 0.20 * recency`, where `source_prior` is OpenAlex 0.8, arXiv 0.7, Zenodo 0.7, HF 0.6, Wikipedia 0.5, and `recency = exp(-age_years / 5)`.
+- Merge duplicates; keep the record with the highest `SOURCE_RANK` for its kind (papers: OpenAlex > arXiv > Semantic Scholar; datasets: Zenodo > Dataverse/OpenML > Hugging Face/Kaggle/data.gov/DataCite; web: Wikipedia > web search). See `whack26/research/base.py` for the exact table.
+- Rank: `0.55 * cos(embed(summary), embed(title + " " + abstract)) + 0.25 * source_prior + 0.20 * recency`, where `source_prior` is OpenAlex 0.8, arXiv/Semantic Scholar/Zenodo 0.7, Dataverse/OpenML 0.65, Hugging Face/Kaggle/data.gov/DataCite 0.6, Wikipedia 0.5, web search 0.4, and `recency = exp(-age_years / 5)`.
 - Keep the top 20 overall. Preserve at least one paper and one dataset record when available.
 
 ## 6. Cache

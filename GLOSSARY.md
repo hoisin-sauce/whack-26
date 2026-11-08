@@ -37,6 +37,26 @@ _Avoid_: Category vector
 The act of assigning a dataset to a field path, creating fields when no existing node fits. Classification happens before research; research may refine it once.
 _Avoid_: Tagging, labeling, clustering
 
+**Leaf field**:
+The most specific field a document is attached to. `documents.leaf_field_id` is the canonical attachment; `document_fields` stores the full root-to-leaf membership, and `datasets.path_json` mirrors it for datasets.
+_Avoid_: Terminal field, assigned field
+
+**Field operation**:
+An audited hierarchy change recorded in `field_operations`: `create`, `merge`, `promote`, `reassign_leaf`, `recompute_path`, `prune`, or `delete`. Each row records old/new parent and level, affected documents, a reason, and the run that made the change.
+
+**Branch**:
+A new child field created under an existing field when a document is specific enough to split the parent. Duplicate siblings are merged instead of duplicated.
+
+**Promotion**:
+Moving a field up one level (or swapping it with its parent) when the subtree is mis-levelled, then re-levelling and re-pathing the affected documents.
+
+**Hierarchy version**:
+A monotonically increasing counter in `store_meta` bumped whenever the tree changes, so caches can detect stale paths.
+
+**Directly related**:
+A document is directly related to field `f` when the similarity of its summary embedding to the field's blended description/centroid score meets the level's threshold `tau[level]`. Placement attaches a document to the shallowest directly related field, not to a merely topical ancestor of a more specific match.
+_Avoid_: Matched, relevant
+
 ### Research
 
 **Research record**:
@@ -44,8 +64,16 @@ A normalized paper, dataset, or web result fetched from a source, identified by 
 _Avoid_: Document, source
 
 **Document**:
-A catalogued Dataset, Search, Paper, or Web resource in the SQLite v2 knowledge store. It has a standardized summary, a summary embedding, authors/publisher metadata, a credibility score, optional field assignments, and to/from links.
+A catalogued Dataset, Search, Paper, or Web resource in the SQLite v4 knowledge store. It has a standardized summary, a summary embedding, authors/publisher metadata, a credibility score, a leaf field, optional field assignments, and to/from links.
 _Avoid_: Resource (in code and schema), record
+
+**Search document**:
+A `kind="search"` document recording one query executed against one source, with its parameters, session, timestamp, result count, and links to its results and follow-up searches.
+_Avoid_: Query log, search record
+
+**Catalog query**:
+A typed filter over stored documents by kind, source, field subtree, year, credibility, preloaded state, text, or similarity, with deterministic ordering and pagination.
+_Avoid_: SQL query, search API
 
 **Semantic scraping**:
 Target-gated expansion from seed research records through API references and links. A high-similarity parent contributes all its links; a lower-similarity parent contributes only links whose own summaries pass a tighter threshold. Budgets and robots rules bound the crawl.
@@ -85,12 +113,43 @@ _Avoid_: Model, idea
 The `applies(df) -> bool` function that decides whether a hypothesis can run on a given dataset.
 _Avoid_: Filter, guard
 
+**Model search**:
+The deterministic search over typed candidate specifications (baseline, linear, logistic, multinomial, Poisson, negative binomial, interaction, group comparison, optional tree/SINDy) across repeated holdouts, followed by screening, selection, and diagnostics.
+_Avoid_: AutoML, model training
+
+**Model candidate**:
+One typed `ModelSpec` plus its per-fold metrics, baseline deltas, coefficients, diagnostics, AIC/BIC, and rank in the model-search result.
+
+**Dataset variant**:
+An anonymized or target-jumbled copy of the dataset used to test PII reliance and label leakage. A jumbled-label model that still performs well is rejected.
+_Avoid_: Synthetic data, perturbation
+
+**Research model**:
+A model specification reported by a paper or web document, evidence-backed and mapped to dataset columns, stored in `research_models` and optionally applied by a generated hypothesis.
+_Avoid_: Extracted model, paper model
+
+**Collection metadata**:
+The declared data-generation design: observational/experimental/quasi-experimental/survey/administrative, unit of analysis, sampling, treatment, instrument, running variable, identification strategy, known biases, and measurement notes. Stored in `datasets.collection_json`.
+_Avoid_: Data dictionary, provenance
+
+**Generation validation**:
+The claim/design review that checks whether a hypothesis's derivation and claim match the collection process. It is separate from statistical validation and never judges model performance.
+_Avoid_: Statistical validation, critic
+
 **Method critic**:
 The agentic reviewer that checks the derivation method and claim type against the preloaded pitfalls corpus. It does not judge statistical validity or model performance; the independent validator owns that.
 _Avoid_: Validator, judge
 
+**Statistical validation**:
+The independent post-generation pass that runs the four-layer engine over a fitted model: Deflated Sharpe Ratio, Monte Carlo permutation, chronological out-of-sample decay, and parameter sensitivity. It reports `passed`, `failed`, `partial`, `skipped`, or `error` and never blocks artifact emission.
+_Avoid_: Critic verdict, performance score
+
+**Statistical backend**:
+The engine selected for a validation target: `auto`, `in_slice`, `stats_engine`, `external`, or `none`. `in_slice` is the default for general regression, classification, and count data; `stats_engine` is reserved for continuous, return-like series; `external` delegates to a configured validator. When no backend supports the data the verdict is `insufficient`, not `failed`.
+_Avoid_: Validator, engine (unqualified)
+
 **Artifact**:
-The versioned JSON handoff plus Markdown preview, containing the dataset profile, field path, research records, factors, hypotheses, execution results, and critic verdict.
+The versioned JSON handoff plus Markdown preview, containing the dataset profile, field path, research records, factors, hypotheses, execution results, critic verdict, and the optional validation, model-search, variant, research-model, collection, and hierarchy sections.
 _Avoid_: Report, output file
 
 ### Evaluation

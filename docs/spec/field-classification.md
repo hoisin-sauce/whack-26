@@ -2,9 +2,16 @@
 
 Status: decided in [ticket #2](https://github.com/hoisin-sauce/whack-26/issues/2). Applies to the 6–8 hour slice.
 
+> **Superseded in part (2026-11-08).** The original slice deferred promotion,
+> rotation, and level-shifting. `whack26/hierarchy/` now implements branching,
+> promotion with subtree re-levelling, and audited path recomputation; see
+> [`field-branching-and-model-search.md`](field-branching-and-model-search.md).
+> The creation/assignment rules below still describe the default classifier,
+> which is not yet routed through the hierarchy package.
+
 ## Scope
 
-- Dynamic creation and assignment only. Promotion, rotation, and level-shifting are deferred.
+- The default classifier performs dynamic creation and assignment only; the optional hierarchy package adds promotion, rotation, and re-levelling (see the banner above).
 - General-domain: no finance-specific taxonomy, no pre-seeded field list.
 - Input: any pandas-readable dataset plus an optional description.
 - Output: exactly one field path per dataset, with the fields created or reused along the way.

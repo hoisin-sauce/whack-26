@@ -58,9 +58,29 @@ python -m whack26 run --input data/california_housing.csv --target median_house_
 # Development without keys
 python -m whack26 run --input data/california_housing.csv --target median_house_value --out runs/demo-mock --mock
 
+# Opt-in agentic stages (model search, variants, generation validation)
+python -m whack26 run `
+  --input data/california_housing.csv `
+  --target median_house_value `
+  --model-search `
+  --variants `
+  --validate-generation `
+  --collection-json collection.json `
+  --collection-field design=observational `
+  --out runs/demo-agentic
+
+# Statistical validation (four-layer engine)
+python -m whack26 validate-models runs/demo
+python -m whack26 validate-models runs/demo --generation
+
 # Validate the artifact
 python -m whack26 validate-artifact runs/demo/artifact.json
 ```
+
+The opt-in flags write `model_search.json`, `variants.json`, and
+`generation_validation.json` into the run directory and add the corresponding
+optional sections to `artifact.json` and `preview.md`. All four settings default
+to off, so a plain `run` behaves exactly as before.
 
 `doctor` checks Python, packages, the corpus file, `.env` keys, Gemini model responsiveness, and OpenAlex authentication. It prints a single status table and exits non-zero on a blocking problem.
 

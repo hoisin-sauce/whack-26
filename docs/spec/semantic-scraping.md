@@ -8,6 +8,15 @@ the follow-on design from `devplan.md`. The code now lives under
 path and a 5-document live smoke are validated; the full 20-resource depth-1
 live smoke still depends on provider quota.
 
+> **Schema history (2026-11-08).** This plan was written against SQLite schema
+> v2 and artifact schema `1.1.0`. The store is now **v4** (v3 added leaf fields;
+> v4 added `field_operations`, `research_models`, collection metadata, and the
+> hierarchy version), and the artifact schema is **1.3.0** (adds
+> `model_search`, `variants`, `research_models`, `collection`,
+> `generation_validation_summary`, and `hypotheses[].generation_validation`).
+> References to v2/`1.1.0` below describe the original slice; `whack26/store.py`
+> and `schemas/artifact.schema.json` are the current authority.
+
 ## 0. Implemented modules
 
 | Module | Responsibility |
@@ -27,9 +36,11 @@ live smoke still depends on provider quota.
 | `pipeline.py` | End-to-end semantic-scraping orchestrator |
 | `whack26/critic/document_critic.py` | Method critique for papers/web documents |
 
-Database schema v2 lives in `cache/fields.db`; `cache/research.db` remains the
-raw HTTP cache. The `whack26 schema` command exports the artifact schema at
-`1.1.0`, which includes the optional `research.semantic_scraping` section.
+The store lives in `cache/fields.db` at **schema v4**; v2 was the original
+semantic-scraping slice, v3 added leaf fields, and v4 added collection metadata
+and research models. `cache/research.db` remains the raw HTTP cache. The
+`whack26 schema` command exports the artifact schema at `1.3.0`, which includes
+the optional `research.semantic_scraping` section.
 
 ## 1. What the devplan asks for
 
@@ -126,7 +137,7 @@ current SQLite stack. The reasons are concrete:
 - keeping one storage engine keeps the tests, `--offline` mode, and the
   single-process runner simple.
 
-The database target is a **versioned SQLite schema v2** in `cache/fields.db`.
+The database target was originally a **versioned SQLite schema v2** in `cache/fields.db`; the current schema is **v4**.
 `cache/research.db` remains the raw HTTP response cache. The devplan's
 Dataset/Search/Paper document model, link graph, summaries, embeddings, and
 field assignments all live in `fields.db`.
@@ -154,7 +165,7 @@ class DocumentStore(Protocol):
 
 ## 5. Database update to the devplan spec
 
-### 5.1 Target schema (SQLite v2)
+### 5.1 Target schema (SQLite v4; originally v2)
 
 The devplan's three document types share a `documents` base table; `kind`
 discriminates `dataset`, `search`, `paper`, and `web` (a fetched link that is not
@@ -288,7 +299,7 @@ Dataset/Search/Paper split with one shared vector-searchable summary column.
 
 ### 5.2 Devplan-to-schema mapping
 
-| Devplan requirement | SQLite v2 implementation |
+| Devplan requirement | SQLite implementation (v4 today) |
 |---|---|
 | Three document types: Dataset, Search, Paper | `documents.kind` plus the `datasets` extension table and `searches`/`papers` views |
 | Datasets linked to searches or papers | `document_links.relation IN ('dataset_paper','search_result')` |
@@ -606,8 +617,10 @@ classify -> one-hop research -> semantic scraping -> factors -> hypotheses -> cr
 
 ## 14. Artifact changes
 
-Add an optional `research.semantic_scraping` section and bump the schema to
-`1.1.0` (the current handoff remains valid when the section is absent).
+Add an optional `research.semantic_scraping` section. The plan originally bumped
+the schema to `1.1.0`; the current schema is `1.3.0` (see
+`docs/spec/artifact.md`), and older handoffs remain valid when the section is
+absent.
 
 ```json
 {
@@ -651,7 +664,7 @@ Add to `Settings` with the `WHACK26_` prefix:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WHACK26_CACHE_DIR` | `cache` | Existing directory; holds `fields.db` (schema v2) and `research.db` |
+| `WHACK26_CACHE_DIR` | `cache` | Existing directory; holds `fields.db` (schema v4) and `research.db` |
 | `WHACK26_SCRAPE_ENABLED` | `0` | Enable the semantic-scraping stage |
 | `WHACK26_SCRAPE_MAX_DEPTH` | `2` | Maximum link/reference depth |
 | `WHACK26_SCRAPE_MAX_RESOURCES` | `100` | Hard document budget per run |

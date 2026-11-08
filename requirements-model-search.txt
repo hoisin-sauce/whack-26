@@ -1,0 +1,13 @@
+# Optional backends for whack26 automated model search.
+#
+# The core search runs on numpy/pandas. These packages enable the optional
+# tree, time-series, and SINDy families and the corresponding diagnostics.
+# Install with:
+#   python -m pip install -r requirements-model-search.txt
+#
+# The default suite skips the optional-backend tests cleanly when these packages
+# are absent; it does not require them.
+
+scikit-learn>=1.4
+statsmodels>=0.14
+pysindy>=2.0

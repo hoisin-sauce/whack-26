@@ -3,11 +3,17 @@
 Status: implementation complete; mock end-to-end validated. The live smoke is
 pending provider quota.
 
+> **Historical record (2026-11-08).** This smoke was captured when the store was
+> schema v2 and the artifact schema was `1.1.0`. The store is now v4 and the
+> artifact schema is `1.3.0`; `schemas/artifact.schema.json` is the authority.
+> The results below are preserved as-is and are not updated.
+
 ## What is implemented
 
-- SQLite v2 knowledge store in `cache/fields.db`: `documents`, `datasets`,
-  `document_links`, `document_fields`, `document_comparisons`,
-  `document_critiques`, `document_fetches`, and `schema_migrations`.
+- SQLite v2 knowledge store in `cache/fields.db` at the time (now v4):
+  `documents`, `datasets`, `document_links`, `document_fields`,
+  `document_comparisons`, `document_critiques`, `document_fetches`, and
+  `schema_migrations`.
 - v1→v2 migration from the previous `datasets`/`field_members` schema.
 - Document identity/dedup, summaries and embeddings, target-gated frontier,
   field classification, credibility scoring, cached comparisons, document
@@ -16,7 +22,7 @@ pending provider quota.
   crawl-delay, per-domain rate limits, redirect re-validation, SSRF/private
   network blocking, allow/block lists, PDF/binary rejection, size/time caps,
   ETag/304 caching, and a capped text-excerpt cache.
-- Artifact schema `1.1.0` with the optional
+- Artifact schema `1.1.0` at the time (now `1.3.0`) with the optional
   `research.semantic_scraping` section and a Markdown preview section.
 
 ## Commands

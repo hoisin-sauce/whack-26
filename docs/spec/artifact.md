@@ -11,6 +11,12 @@ runs/<run_id>/
   dataset.csv
   factors.json
   research.json
+  validation.json             # when --validate is used
+  generation_validation.json  # when --validate-generation is used
+  model_search.json           # when --model-search is used
+  variants.json               # when --variants is used
+  research_models.json        # research-to-model extraction
+  scrape.json / scrape.md     # when scraping is enabled
   hypotheses/<hyp_id>.py
   predictions/<hyp_id>.csv
   logs/run.log
@@ -24,7 +30,7 @@ All paths inside the artifact are relative to the run directory. `dataset.source
 
 ```json
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.3.0",
   "run": {
     "run_id": "run_20261107T213000Z_a1b2c3d4",
     "started_at": "2026-11-07T21:30:00Z",
@@ -196,12 +202,41 @@ All paths inside the artifact are relative to the run directory. `dataset.source
         "retrieved_chunks": ["S0-how-to-use", "S2-leakage"],
         "model": "gemini-3.6-flash",
         "corpus_version": "1.0.0+…"
+      },
+      "validation": {
+        "hypothesis_id": "hyp_…",
+        "status": "passed",
+        "verdict": "pass",
+        "target": "median_house_value",
+        "rows_used": 20640,
+        "dropped_rows": 0,
+        "feature_columns": ["median_income", "housing_median_age"],
+        "periods_per_year": 1.0,
+        "periods_per_year_source": "default",
+        "in_sample_fallback": false,
+        "has_fit_predict": true,
+        "layers": [
+          {"layer": "Layer 1 (DSR)", "status": "passed", "metrics": {"dsr_score": 0.99}},
+          {"layer": "Layer 2 (Monte Carlo)", "status": "passed", "metrics": {"p_value": 0.001}},
+          {"layer": "Layer 3 (OOS Decay)", "status": "passed", "metrics": {"oos_score": 0.58}},
+          {"layer": "Layer 4 (Parameter Sensitivity)", "status": "passed", "metrics": {}}
+        ],
+        "dsr_score": 0.99,
+        "p_value": 0.001,
+        "oos_score": 0.58,
+        "decay_rate": 0.04,
+        "tolerance": 0.31,
+        "runtime_ms": 2400,
+        "warnings": []
       }
     }
   ],
   "critic_summary": {
     "verdicts": {"pass": 1, "refine": 1, "reject": 1, "insufficient": 0},
     "degraded": false
+  },
+  "validation_summary": {
+    "counts": {"passed": 2, "failed": 1, "partial": 0, "skipped": 0, "error": 0}
   },
   "warnings": [],
   "provenance": {
@@ -212,6 +247,27 @@ All paths inside the artifact are relative to the run directory. `dataset.source
   }
 }
 ```
+
+### Optional 1.3.0 sections
+
+These are absent unless the corresponding stage runs, and legacy artifacts
+remain valid without them:
+
+- `model_search` — typed target, candidate list, selected model, metrics,
+  diagnostics, backend, and seed (`run --model-search`).
+- `variants` — original, anonymized, and jumbled-label reports plus leak
+  verdicts (`run --variants`).
+- `research_models` — evidence-backed model specs extracted from papers and web
+  documents (research-to-model stage).
+- `collection` — the declared collection-method metadata
+  (`--collection-json`/`--collection-field`).
+- `generation_validation_summary` and `hypotheses[].generation_validation` —
+  claim/design review results (`run --validate-generation` or
+  `validate-models --generation`).
+
+The corresponding sidecar files (`model_search.json`, `variants.json`,
+`generation_validation.json`, `research_models.json`) are written next to
+`artifact.json` even when a consumer only reads the artifact.
 
 ## Stable IDs
 
@@ -235,10 +291,11 @@ IDs are content-derived where possible so re-runs and cross-run dedup can use th
 3. Field path: breadcrumb with descriptions.
 4. Research: the top 10 records with title, year, source, link, and one-line relevance.
 5. Factors: table of factor, direction, evidence, mapped column, confidence.
-6. Hypotheses: one section per hypothesis with title, family, claim type, assumptions, factors, rationale, fenced code, execution status/runtime, predictions path, and critic verdict.
+6. Hypotheses: one section per hypothesis with title, family, claim type, assumptions, factors, rationale, fenced code, execution status/runtime, predictions path, critic verdict, and the statistical-validation layer statuses and metrics.
 7. Critic summary: verdict counts and the issues that are `major`/`fatal`.
-8. Warnings and degraded modes.
-9. Provenance: Python/package versions, corpus version, git commit if available.
+8. Validation summary: report-status counts.
+9. Warnings and degraded modes.
+10. Provenance: Python/package versions, corpus version, git commit if available.
 
 No API keys, absolute paths, raw PII, or full prediction arrays.
 
@@ -250,9 +307,17 @@ No API keys, absolute paths, raw PII, or full prediction arrays.
 - `dataset.target`, `dataset.time_column`;
 - `hypotheses[].code_path`, `required_columns`, `method_family`;
 - `hypotheses[].predictions_path` (aligned `row_index,prediction`);
-- `hypotheses[].execution` to know whether the function ran.
+- `hypotheses[].execution` to know whether the function ran;
+- `hypotheses[].validation` when the validator ran, and `validation_summary`
+  for counts.
 
-They can import the module and call `applies`/`run`, or use the saved predictions. They own all formal tests and write results outside this artifact.
+The in-repo validator (`python -m whack26 validate-models`) consumes the
+artifact, calls the generated module's `_fit`/`_predict` helpers when present,
+and writes `validation.json`. Legacy modules without those helpers fall back to
+the saved predictions and are marked `in_sample_fallback: true`. The
+`validation` section is advisory: a failed layer never invalidates the
+artifact. The statistical-tests owner can rerun the engine independently and
+write results outside this artifact.
 
 **Report owner** reads `artifact.json` and `preview.md`, plus the statistical owner's results. They own the final report.
 
@@ -261,7 +326,13 @@ They can import the module and call `applies`/`run`, or use the saved prediction
 ## Versioning
 
 - `schema_version` is semver. Breaking changes bump the major.
-- `1.1.0` adds the optional `research.semantic_scraping` section; `1.0.0` artifacts remain valid.
+- `1.1.0` adds the optional `research.semantic_scraping` section.
+- `1.2.0` adds the optional `hypotheses[].validation` and
+  `validation_summary` sections. `1.0.0` and `1.1.0` artifacts remain valid.
+- `1.3.0` adds the optional `model_search`, `variants`, `research_models`,
+  `collection`, `generation_validation_summary`, and
+  `hypotheses[].generation_validation` sections. `1.0.0`–`1.2.0` artifacts
+  remain valid.
 - Consumers must reject an unknown major and warn on an unknown minor.
 - `schemas/artifact.schema.json` is generated from the Pydantic model and checked into the repo.
 - `corpus_version` and `tool_version` are separate from the schema.

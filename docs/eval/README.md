@@ -91,10 +91,36 @@ reproduce exactly from the saved code. California returned one `refine` and two
 
 ## Semantic-scraping smoke
 
-The document catalog, SQLite v2 migration, frontier, credibility, comparisons,
+The document catalog, SQLite v4 migration, frontier, credibility, comparisons,
 document critic, and preload are recorded in
 [`semantic-scraping-smoke.md`](semantic-scraping-smoke.md). The mock end-to-end
 path is validated; the live OpenAlex-reference smoke is pending provider quota.
+
+## Statistical-validation smoke
+
+The four-layer validation contract and mock acceptance are recorded in
+[`statistical-validation.md`](statistical-validation.md). The validator runs the
+unmodified `stats_engine.py`, writes `validation.json`, and embeds optional
+reports in the artifact. Legacy runs validate in-sample; a live two-dataset
+validation run is pending provider quota.
+
+## Hierarchy and model-search evals
+
+```powershell
+.\.venv\Scripts\python.exe eval\field_hierarchy.py
+.\.venv\Scripts\python.exe eval\model_search.py --local
+.\.venv\Scripts\python.exe eval\model_search.py
+```
+
+- `eval/field_hierarchy.py` runs a 30-case offline hierarchy/placement gate over
+  exact/ancestor match, over- and under-specificity, branch precision, promotion
+  precision, and path consistency.
+- `eval/model_search.py` runs nine golden synthetic datasets (linear,
+  interaction, binary, multiclass, overdispersed count, time series, group
+  means, missing/collinear, small-n/high-cardinality) and reports top-family
+  recovery, baseline improvement, leakage, and optional-backend availability.
+  `--local` forces the deterministic fallback; auto mode prefers the real
+  `whack26/model_search/` modules.
 
 ## Current status
 
