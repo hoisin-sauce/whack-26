@@ -4,18 +4,20 @@ Status: **implemented on the existing SQLite stack**. The 6–8 hour slice
 originally deferred semantic scraping and credibility scoring; this document is
 the follow-on design from `devplan.md`. The code now lives under
 `whack26/research/scrape/` and is wired into `whack26 run --scrape`, the
-`whack26 scrape` command, and `whack26 preload-statistics`. The mock end-to-end
-path and a 5-document live smoke are validated; the full 20-resource depth-1
-live smoke still depends on provider quota.
+`whack26 scrape` command, and `whack26 preload-statistics`. Scraped documents
+use hierarchy placement by default. The mock end-to-end path and a 5-document
+live smoke are validated; the full 20-resource depth-1 live smoke still depends
+on provider quota.
 
 > **Schema history (2026-11-08).** This plan was written against SQLite schema
 > v2 and artifact schema `1.1.0`. The store is now **v4** (v3 added leaf fields;
 > v4 added `field_operations`, `research_models`, collection metadata, and the
-> hierarchy version), and the artifact schema is **1.3.0** (adds
+> hierarchy version), and the artifact schema is **1.5.0** (adds
 > `model_search`, `variants`, `research_models`, `collection`,
-> `generation_validation_summary`, and `hypotheses[].generation_validation`).
-> References to v2/`1.1.0` below describe the original slice; `whack26/store.py`
-> and `schemas/artifact.schema.json` are the current authority.
+> `generation_validation_summary`, `hypotheses[].generation_validation`,
+> `final_judge`, and `field_pitfalls`). References to v2/`1.1.0` below describe
+> the original slice; `whack26/store.py` and
+> `schemas/artifact.schema.json` are the current authority.
 
 ## 0. Implemented modules
 
@@ -38,9 +40,11 @@ live smoke still depends on provider quota.
 
 The store lives in `cache/fields.db` at **schema v4**; v2 was the original
 semantic-scraping slice, v3 added leaf fields, and v4 added collection metadata
-and research models. `cache/research.db` remains the raw HTTP cache. The
-`whack26 schema` command exports the artifact schema at `1.3.0`, which includes
-the optional `research.semantic_scraping` section.
+and research models. `cache/research.db` remains the raw HTTP cache. Scraped
+documents use `whack26/hierarchy/place.py` for placement by default; the
+dataset classifier still uses create/assign. The `whack26 schema` command
+exports the current artifact schema (`1.5.0`), which includes the optional
+`research.semantic_scraping` section.
 
 ## 1. What the devplan asks for
 
@@ -115,8 +119,9 @@ preload.
 - No general web search API. Start with references and links already returned by
   OpenAlex, arXiv, Wikipedia, HF Hub, and Zenodo. Add a compliant web-search
   adapter only after a legal review.
-- No hierarchy level-shifting/promotion. Resource assignment reuses the current
-  create/assign algorithm; dynamic re-parenting is a separate work package.
+- No hierarchy level-shifting for the user-dataset classifier. Scraped
+  resources do use the hierarchy placement/promotion path added after this
+  plan; the dataset classifier remains create/assign.
 - The HTTP fetcher is opt-in (`WHACK26_SCRAPE_FETCH_ENABLED=1` or `--fetch`). It
   enforces `robots.txt`, per-domain rate limits, an optional allow/block list,
   private-network/SSRF blocking, redirect re-validation, PDF/binary rejection,
@@ -165,7 +170,12 @@ class DocumentStore(Protocol):
 
 ## 5. Database update to the devplan spec
 
-### 5.1 Target schema (SQLite v4; originally v2)
+### 5.1 Original v2 schema (current is v4)
+
+The DDL below is the original v2 semantic-scraping schema, kept as a design
+record. `whack26/store.py` is the current authority and adds the v3/v4 columns
+and tables (`leaf_field_id`, `field_operations`, `store_meta`,
+`research_models`, collection metadata).
 
 The devplan's three document types share a `documents` base table; `kind`
 discriminates `dataset`, `search`, `paper`, and `web` (a fetched link that is not
@@ -434,13 +444,14 @@ New module: `whack26/research/scrape/process.py`.
 3. **Embed** the summary once with the configured embedding model; store the
    L2-normalized vector and `embedding_model`. A model change invalidates cached
    similarities.
-4. **Classify** the resource with the existing field hierarchy. Reuse the
-   top-k + LLM choice pattern, but with a resource prompt (“classify a research
-   resource, not a dataset”). Write `document_fields` rows for every field in
-   the assigned path (root→leaf), matching the dataset membership invariant. A
-   resource may be assigned to one leaf path; the path is stored in the artifact.
-   Do not create a new root; if no field fits, assign to the closest existing
-   root and warn.
+4. **Classify** the resource with the existing field hierarchy. The implemented
+   path uses `whack26/hierarchy/place.py` (target-gated placement, branching,
+   promotion, and audited path recomputation); the original plan reused the
+   top-k + LLM create/assign pattern with a resource prompt. Either way, write
+   `document_fields` rows for every field in the assigned path (root→leaf),
+   matching the dataset membership invariant. A resource may be assigned to one
+   leaf path; the path is stored in the artifact. Do not create a new root; if
+   no field fits, assign to the closest existing root and warn.
 5. **Credibility** (Phase 4) before the resource is eligible as evidence.
 
 ## 8. Semantic scraping frontier
@@ -499,7 +510,11 @@ score = 0.35 * author_signal
 ```
 
 - `author_signal`: known author with citations/h-index from OpenAlex or Semantic
-  Scholar; unknown author = 0.5; no authors = 0.2.
+  Scholar; unknown author = 0.5; no authors = 0.2. The research adapters pass
+  author IDs and document citation counts through `Document.metadata`; a
+  key-gated OpenAlex enrichment pass fills `author_h_index` and
+  `author_citation_count`. Without those keys the author signal stays at its
+  conservative 0.5 default.
 - `venue_signal`: peer-reviewed journal/conference = 1.0; book chapter = 0.8;
   preprint = 0.6; dataset repository = 0.7; news = 0.4; blog/unknown = 0.2.
 - `source_type_signal`: OpenAlex/arXiv = 0.8, Zenodo/HF = 0.7, Wikipedia = 0.5,
@@ -618,7 +633,7 @@ classify -> one-hop research -> semantic scraping -> factors -> hypotheses -> cr
 ## 14. Artifact changes
 
 Add an optional `research.semantic_scraping` section. The plan originally bumped
-the schema to `1.1.0`; the current schema is `1.3.0` (see
+the schema to `1.1.0`; the current schema is `1.5.0` (see
 `docs/spec/artifact.md`), and older handoffs remain valid when the section is
 absent.
 

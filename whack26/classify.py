@@ -305,6 +305,7 @@ class Classifier:
             profile.sha256,
             target,
             profile.description,
+            profile.source_site,
             profile.rows,
             profile.time_column,
             schema,

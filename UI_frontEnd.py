@@ -1,9 +1,13 @@
+import html
 import os
 import sys
+import threading
+from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
@@ -30,6 +34,21 @@ TARGET_CONTRACT = (
     "non-zero variance, and at least three distinct values. Binary labels and "
     "constant targets are rejected."
 )
+
+PIPELINE_BUTTON_IDLE = "Run Pipeline & Load Report"
+PIPELINE_BUTTON_RUNNING = "Running Pipeline..."
+PIPELINE_LOADING_HTML = """
+<h1>Report loading...</h1>
+<p>The dataset is running through the research pipeline. This can take a
+few minutes. The final-judge report will replace this message when ready.</p>
+"""
+
+
+def _error_html(title: str, message: str) -> str:
+    return (
+        f"<h1>{html.escape(title)}</h1>"
+        f"<p>{html.escape(message)}</p>"
+    )
 
 
 APP_STYLESHEET = """
@@ -367,6 +386,42 @@ strong, b {
     color: #21293e;
     font-weight: 600;
 }
+.banner {
+    background-color: #f6f5f2;
+    border: 1px solid #d9d5cf;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+.banner.warn {
+    background-color: #fdf3d9;
+    border-color: #c99a2e;
+}
+.banner.alert {
+    background-color: #fbe9dd;
+    border-color: #b4511c;
+}
+.banner.bad {
+    background-color: #f9e1e1;
+    border-color: #a42626;
+}
+.banner.ok {
+    background-color: #e6f4ec;
+    border-color: #1f7a4d;
+}
+.card {
+    border: 1px solid #d9d5cf;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+.badge {
+    color: #434c60;
+    font-size: 9pt;
+    margin-right: 6px;
+}
+.finding {
+    color: #21293e;
+    margin-top: 4px;
+}
 """
 
 
@@ -403,19 +458,61 @@ class HtmlSummaryView(QTextBrowser):
         self.document().setDefaultFont(QFont("Segoe UI", 10))
 
 
+class _PipelineSignals(QObject):
+    """Signals emitted by a background pipeline task."""
+
+    log = pyqtSignal(str)
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+
+class _PipelineTask(threading.Thread):
+    """Run the research pipeline off the GUI thread.
+
+    A daemon thread is deliberate: closing a tab or the application must not
+    leave a live Qt thread-pool worker behind. The pipeline itself is still
+    loaded through the normal run-directory handoff when it completes.
+    """
+
+    def __init__(self, runner: Callable[..., Any], kwargs: dict[str, Any]):
+        super().__init__(daemon=True)
+        self.runner = runner
+        self.kwargs = dict(kwargs)
+        self.signals = _PipelineSignals()
+
+    def run(self) -> None:
+        try:
+            self.kwargs["log"] = self.signals.log.emit
+            outcome = self.runner(**self.kwargs)
+        except Exception as exc:  # noqa: BLE001 - surface the failure in the UI
+            self.signals.failed.emit(f"{type(exc).__name__}: {exc}")
+            return
+        self.signals.finished.emit(outcome)
+
+
 class DatasetWorkspace(QWidget):
     """Independent validation workspace for a single dataset."""
 
     dataset_name_changed = pyqtSignal(str)
     tab_name_changed = pyqtSignal()
 
-    def __init__(self, parent=None, default_title="Dataset"):
+    def __init__(
+        self,
+        parent=None,
+        default_title="Dataset",
+        auto_run_pipeline=False,
+        pipeline_runner: Callable[..., Any] | None = None,
+    ):
         super().__init__(parent)
         self.dropped_file_path = None
         self.loaded_dataframe = None
         self.default_title = default_title
         self.dataset_name = None
         self.custom_tab_name = None
+        self.auto_run_pipeline = bool(auto_run_pipeline)
+        self._pipeline_runner = pipeline_runner
+        self._pipeline_task: _PipelineTask | None = None
+        self._pipeline_running = False
         self.initUI()
 
     def set_tab_name(self, name):
@@ -525,11 +622,11 @@ class DatasetWorkspace(QWidget):
         main_layout.addLayout(config_row)
 
         # --- RUN BUTTON ---
-        self.run_btn = QPushButton("Run Master Validation Engine")
+        self.run_btn = QPushButton(PIPELINE_BUTTON_IDLE)
         self.run_btn.setObjectName("runButton")
         self.run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_btn.setMinimumHeight(50)
-        self.run_btn.clicked.connect(self.run_validation)
+        self.run_btn.clicked.connect(self.start_pipeline)
         main_layout.addWidget(self.run_btn)
 
         # --- SPLIT LAYOUT FOR LOGS AND SUMMARY REPORT ---
@@ -566,7 +663,7 @@ class DatasetWorkspace(QWidget):
         self.summary_output.setObjectName("summaryOutput")
         self.summary_output.setReadOnly(True)
         self.summary_output.setPlaceholderText(
-            "Validation metrics will appear here after a run."
+            "The final-judge report will appear here after the pipeline runs."
         )
         summary_layout.addWidget(self.summary_output)
         summary_group.setLayout(summary_layout)
@@ -592,6 +689,155 @@ class DatasetWorkspace(QWidget):
         self.summary_output.setHtml(html)
         self.summary_output.verticalScrollBar().setValue(0)
         self.log_output.append("\nHTML report embedded in summary.")
+
+    def load_final_judge_report(self, run_dir):
+        """Load ``final_judge.fragment.html`` from a run directory.
+
+        The final judge writes a CSS-free semantic HTML fragment specifically
+        for this panel; the dashboard stylesheet supplies the presentation.
+        """
+        fragment = Path(run_dir) / "final_judge.fragment.html"
+        if not fragment.is_file():
+            raise FileNotFoundError(
+                f"no final judge report at {fragment}; run the pipeline with --judge"
+            )
+        self.load_summary_html(fragment.read_text(encoding="utf-8"))
+
+    # ---------------------------------------------------------- pipeline run
+    @staticmethod
+    def _default_pipeline_runner(**kwargs: Any) -> Any:
+        from whack26.run import run_pipeline
+
+        return run_pipeline(**kwargs)
+
+    def _pipeline_validation_config(self):
+        from whack26.validation.models import ValidationConfig
+
+        def number(text: str, default: float) -> float:
+            cleaned = text.strip()
+            return default if not cleaned else float(cleaned)
+
+        periods = number(self.periods_input.text(), 252.0)
+        min_dsr = number(self.min_sharpe_input.text(), 0.95)
+        decay_text = self.max_decay_input.text().strip()
+        max_decay = None if not decay_text else float(decay_text)
+        return ValidationConfig(
+            min_dsr=min_dsr,
+            periods_per_year=periods,
+            max_decay_tolerance=max_decay,
+        )
+
+    def _set_pipeline_loading(self, loading: bool) -> None:
+        self._pipeline_running = loading
+        self.run_btn.setEnabled(not loading)
+        self.run_btn.setText(
+            PIPELINE_BUTTON_RUNNING if loading else PIPELINE_BUTTON_IDLE
+        )
+        if loading:
+            self.summary_output.setHtml(PIPELINE_LOADING_HTML)
+            self.summary_output.verticalScrollBar().setValue(0)
+
+    def _show_report_error(self, message: str) -> None:
+        self.summary_output.setHtml(_error_html("Report unavailable", message))
+        self.summary_output.verticalScrollBar().setValue(0)
+        self.log_output.append(f"\nReport unavailable: {message}")
+
+    def start_pipeline(self) -> None:
+        """Run the full research pipeline and load its final-judge report."""
+        if self._pipeline_running:
+            self.log_output.append("\nPipeline is already running for this tab.")
+            return
+        if self.loaded_dataframe is None or not self.dropped_file_path:
+            message = (
+                "No dataset is loaded. Drop a .csv/.xls/.xlsx file before running."
+            )
+            self.log_output.append(f"\n{message}")
+            self._show_report_error(message)
+            return
+        try:
+            validation_config = self._pipeline_validation_config()
+        except (TypeError, ValueError) as exc:
+            message = f"Invalid restriction settings: {exc}"
+            self.log_output.append(f"\n{message}")
+            self._show_report_error(message)
+            return
+
+        target = None
+        if len(self.loaded_dataframe.columns):
+            target = str(self.loaded_dataframe.columns[-1])
+        description = self.data_desc_input.text().strip() or None
+        runner = self._pipeline_runner or self._default_pipeline_runner
+        kwargs = {
+            "input_path": Path(self.dropped_file_path),
+            "description": description,
+            "target": target,
+            "model_search": True,
+            "validate": True,
+            "validation_config": validation_config,
+            "final_judge": True,
+        }
+
+        self.log_output.append(
+            f"\n--- Starting pipeline for {os.path.basename(self.dropped_file_path)} ---"
+        )
+        self._set_pipeline_loading(True)
+        task = _PipelineTask(runner, kwargs)
+        self._pipeline_task = task
+        # Bound QObject methods (not lambdas) so Qt disconnects them if this
+        # workspace is deleted while the daemon task is still running.
+        task.signals.log.connect(self._on_pipeline_log)
+        task.signals.finished.connect(self._on_pipeline_finished)
+        task.signals.failed.connect(self._on_pipeline_failed)
+        task.start()
+        self.log_output.append("Pipeline is running in the background...")
+
+    def shutdown(self) -> None:
+        """Disconnect an in-flight pipeline task before this widget is deleted."""
+        task = self._pipeline_task
+        self._pipeline_task = None
+        if task is None:
+            return
+        for signal, slot in (
+            (task.signals.log, self._on_pipeline_log),
+            (task.signals.finished, self._on_pipeline_finished),
+            (task.signals.failed, self._on_pipeline_failed),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+
+    def closeEvent(self, event):  # noqa: N802 - Qt override
+        self.shutdown()
+        super().closeEvent(event)
+
+    def _on_pipeline_log(self, line: str) -> None:
+        self.log_output.append(line)
+
+    def _on_pipeline_finished(self, outcome: Any) -> None:
+        if self._pipeline_task is None:
+            return
+        self._pipeline_task = None
+        self._set_pipeline_loading(False)
+        run_dir = getattr(outcome, "run_dir", None)
+        if run_dir is None:
+            self._show_report_error("The pipeline finished without a run directory.")
+            return
+        self.log_output.append(f"\nPipeline finished: {run_dir}")
+        try:
+            self.load_final_judge_report(run_dir)
+        except (OSError, ValueError) as exc:
+            self._show_report_error(
+                f"The pipeline finished but its report could not be loaded: {exc}"
+            )
+
+    def _on_pipeline_failed(self, message: str) -> None:
+        if self._pipeline_task is None:
+            return
+        self._pipeline_task = None
+        self._set_pipeline_loading(False)
+        self.log_output.append(f"\nPipeline failed: {message}")
+        self._show_report_error(f"The pipeline failed: {message}")
 
     def handle_dropped_file(self, file_path):
         self.dropped_file_path = file_path
@@ -623,6 +869,9 @@ class DatasetWorkspace(QWidget):
             if dataset_label:
                 self.dataset_name = dataset_label
                 self.dataset_name_changed.emit(dataset_label)
+
+            if self.auto_run_pipeline:
+                self.start_pipeline()
         except Exception as e:
             self.log_output.append(f"Error parsing file with Pandas: {str(e)}")
 
@@ -809,9 +1058,16 @@ class DatasetWorkspace(QWidget):
 class QuantDashboard(QWidget):
     """Tabbed shell hosting one fully independent workspace per dataset."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        auto_run_pipeline: bool = False,
+        pipeline_runner: Callable[..., Any] | None = None,
+    ):
         super().__init__()
         self._dataset_counter = 0
+        self._auto_run_pipeline = bool(auto_run_pipeline)
+        self._pipeline_runner = pipeline_runner
         self.initUI()
 
     def initUI(self):
@@ -849,8 +1105,9 @@ class QuantDashboard(QWidget):
         header_layout.addWidget(self.title_label)
 
         subtitle_label = QLabel(
-            "Each tab holds an unrelated dataset. Configure constraints, drop a "
-            "dataset, and run the master validation pass independently per tab."
+            "Each tab holds an unrelated dataset. Drop a dataset and it runs "
+            "through the research pipeline automatically; the final-judge report "
+            "appears in that tab when ready."
         )
         subtitle_label.setObjectName("subtitleLabel")
         subtitle_label.setWordWrap(True)
@@ -886,7 +1143,9 @@ class QuantDashboard(QWidget):
         """Create a new isolated dataset workspace and return its tab reference."""
         self._dataset_counter += 1
         workspace = DatasetWorkspace(
-            default_title=f"Dataset {self._dataset_counter}"
+            default_title=f"Dataset {self._dataset_counter}",
+            auto_run_pipeline=self._auto_run_pipeline,
+            pipeline_runner=self._pipeline_runner,
         )
         index = self.tabs.addTab(workspace, workspace.default_title)
         workspace.dataset_name_changed.connect(
@@ -907,6 +1166,7 @@ class QuantDashboard(QWidget):
         workspace = self.tabs.widget(index)
         if workspace is None:
             return
+        workspace.shutdown()
         self.tabs.removeTab(index)
         workspace.deleteLater()
         if self.tabs.count() == 0:
@@ -1009,6 +1269,17 @@ class QuantDashboard(QWidget):
         workspace.load_summary_html(html)
         return workspace
 
+    def load_final_judge(self, run_dir, tab_ref=None):
+        """Load the final judge's UI fragment into a dataset tab.
+
+        ``run_dir`` is the directory containing ``final_judge.fragment.html``
+        and ``artifact.json``.  This is the handoff used by the report owner:
+        the judge renders the HTML, the dashboard supplies the styling.
+        """
+        workspace = self._resolve_workspace(tab_ref)
+        workspace.load_final_judge_report(run_dir)
+        return workspace
+
     def load_summary_html(self, html, tab_index=None):
         """Backwards-compatible alias for :meth:`set_report`."""
         return self.set_report(html, tab_index)
@@ -1033,6 +1304,6 @@ class QuantDashboard(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    dashboard = QuantDashboard()
+    dashboard = QuantDashboard(auto_run_pipeline=True)
     dashboard.show()
     sys.exit(app.exec())

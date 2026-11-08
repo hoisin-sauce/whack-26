@@ -1,0 +1,2 @@
+-r requirements-ui.txt
+pytest-qt>=4.5

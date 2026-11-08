@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
+from whack26.validation import execute as execute_module
 from whack26.validation.execute import run_validation
-from whack26.validation.models import ValidationConfig, ValidationRequest
+from whack26.validation.models import (
+    ValidationConfig,
+    ValidationReport,
+    ValidationRequest,
+)
 
 LINEAR_MODULE = '''import numpy as np
 import pandas as pd
@@ -246,3 +253,89 @@ def test_missing_helpers_use_saved_predictions(tmp_path: Path) -> None:
     assert report.layer("Layer 3 (OOS Decay)").status == "skipped"
     assert report.layer("Layer 4 (Parameter Sensitivity)").status == "skipped"
     assert report.status in {"partial", "failed"}
+
+
+def test_validation_runner_start_failure_is_an_error_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*args, **kwargs):
+        raise OSError("cannot spawn")
+
+    monkeypatch.setattr(execute_module.subprocess, "run", fail)
+    req = request(Path("m.py"), Path("d.csv"), Path("p.csv"))
+
+    report = run_validation(req, config(), run_dir=tmp_path)
+
+    assert report.status == "error"
+    assert "could not start the validation runner" in (report.error or "")
+
+
+def test_validation_runner_missing_report_is_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        execute_module.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            args=command, returncode=1, stdout="", stderr="boom"
+        ),
+    )
+
+    report = run_validation(
+        request(Path("m.py"), Path("d.csv"), Path("p.csv")),
+        config(),
+        run_dir=tmp_path,
+    )
+
+    assert report.status == "error"
+    assert "without a report" in (report.error or "")
+    assert any("runner_stderr" in warning for warning in report.warnings)
+
+
+def test_validation_runner_unreadable_report_is_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command, **kwargs):
+        Path(command[-1]).write_text("{not json", encoding="utf-8")
+        return subprocess.CompletedProcess(
+            args=command, returncode=0, stdout="", stderr=""
+        )
+
+    monkeypatch.setattr(execute_module.subprocess, "run", fake_run)
+
+    report = run_validation(
+        request(Path("m.py"), Path("d.csv"), Path("p.csv")),
+        config(),
+        run_dir=tmp_path,
+    )
+
+    assert report.status == "error"
+    assert "validation report is unreadable" in (report.error or "")
+
+
+def test_validation_runner_nonzero_exit_adds_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command, **kwargs):
+        payload = ValidationReport(
+            hypothesis_id="hyp_test", status="passed", verdict="pass"
+        )
+        Path(command[-1]).write_text(payload.model_dump_json(), encoding="utf-8")
+        return subprocess.CompletedProcess(
+            args=command, returncode=1, stdout="", stderr="Traceback: boom"
+        )
+
+    monkeypatch.setattr(execute_module.subprocess, "run", fake_run)
+
+    report = run_validation(
+        request(Path("m.py"), Path("d.csv"), Path("p.csv")),
+        config(),
+        run_dir=tmp_path,
+    )
+
+    assert report.status == "passed"
+    assert any(
+        "validation runner exited with code 1" in warning
+        for warning in report.warnings
+    )
+    assert any("runner_stderr" in warning for warning in report.warnings)

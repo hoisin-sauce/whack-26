@@ -14,8 +14,10 @@ from pydantic import BaseModel, Field as PField, ValidationError, field_validato
 from .classify import FieldPath
 from .critic.models import CriticResult
 from .factors import Factor
+from .final_judge.types import FinalJudgeReport
 from .hypotheses.generate import GeneratedHypothesis
 from .ids import factor_id
+from .pitfalls.types import FieldPitfallReport
 from .profile import DatasetProfile
 from .research.pipeline import ResearchResult
 from .research.scrape.models import ScrapeResult
@@ -23,7 +25,7 @@ from .screen import ScreenSummary
 from .validation.generation_models import GenerationValidationResult
 from .validation.models import ValidationReport, summary_counts
 
-SCHEMA_VERSION = "1.3.0"
+SCHEMA_VERSION = "1.5.0"
 _ABSOLUTE_MARKERS = ("/", "\\")
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("google_api_key", re.compile(r"AIza[0-9A-Za-z_\-]{20,}")),
@@ -67,6 +69,7 @@ class DatasetSection(BaseModel):
     format: str
     rows: int
     description: str | None = None
+    source_site: str | None = None
     target: TargetSection | None = None
     time_column: str | None = None
     columns: list[DatasetColumn] = PField(default_factory=list)
@@ -108,6 +111,14 @@ class ResearchRecordSection(BaseModel):
     query: str
     relevance: float = 0.0
     also_seen_in: list[str] = PField(default_factory=list)
+    cited_by_count: int | None = None
+    author_ids: list[str] = PField(default_factory=list)
+    author_h_index: int | None = None
+    author_citation_count: int | None = None
+    author_known: bool | None = None
+    venue_type: str | None = None
+    publisher: str | None = None
+    metrics_source: str | None = None
 
 
 class ResearchSection(BaseModel):
@@ -287,6 +298,7 @@ class ModelSearchSection(BaseModel):
     target_kind: str = "continuous"
     metric: str = "r2"
     selected_family: str | None = None
+    selected_features: list[str] = PField(default_factory=list)
     selected_metrics: dict[str, float] = PField(default_factory=dict)
     candidate_count: int = 0
     candidates: list[dict[str, Any]] = PField(default_factory=list)
@@ -333,6 +345,8 @@ class Artifact(BaseModel):
     validation_summary: ValidationSummary | None = None
     generation_validation_summary: GenerationValidationSummary | None = None
     model_search: ModelSearchSection | None = None
+    final_judge: FinalJudgeReport | None = None
+    field_pitfalls: FieldPitfallReport | None = None
     variants: VariantSection | None = None
     research_models: list[ResearchModelSection] = PField(default_factory=list)
     collection: dict[str, Any] | None = None
@@ -356,6 +370,7 @@ def _dataset_section(profile: DatasetProfile) -> DatasetSection:
         format=profile.format,
         rows=profile.rows,
         description=profile.description,
+        source_site=profile.source_site,
         target=(
             TargetSection(
                 name=profile.target.name,
@@ -587,16 +602,27 @@ def _model_search_section(model_search: Any) -> ModelSearchSection | None:
                     {
                         "name": getattr(item, "name", ""),
                         "status": getattr(item, "status", "ok"),
+                        "value": getattr(item, "value", None),
                         "message": getattr(item, "message", ""),
                     }
                     for item in (getattr(candidate, "diagnostics", []) or [])
                 ],
+                "metric_std": {
+                    str(name): float(value)
+                    for name, value in (
+                        getattr(candidate, "metric_std", {}) or {}
+                    ).items()
+                    if isinstance(value, (int, float))
+                },
             }
         )
     return ModelSearchSection(
         target_kind=str(getattr(model_search, "target_kind", "continuous")),
         metric=str(getattr(model_search, "metric", "r2")),
         selected_family=getattr(spec, "family", None) if spec is not None else None,
+        selected_features=(
+            list(getattr(spec, "features", []) or []) if spec is not None else []
+        ),
         selected_metrics={
             str(name): float(value)
             for name, value in (getattr(selected, "metrics", {}) or {}).items()
@@ -710,9 +736,11 @@ def build_artifact(
     validations: dict[str, ValidationReport] | None = None,
     generation_validations: dict[str, GenerationValidationResult] | None = None,
     model_search: Any | None = None,
+    final_judge: FinalJudgeReport | None = None,
     variants: Any | None = None,
     research_models: Sequence[Any] = (),
     collection: dict[str, Any] | None = None,
+    field_pitfalls: FieldPitfallReport | None = None,
 ) -> Artifact:
     """Assemble and validate the artifact from completed stage outputs."""
     by_id = {critic.hypothesis_id: critic for critic in critics}
@@ -784,6 +812,8 @@ def build_artifact(
             else None
         ),
         model_search=_model_search_section(model_search),
+        final_judge=final_judge,
+        field_pitfalls=field_pitfalls,
         variants=_variant_section(variants),
         research_models=_research_model_sections(research_models),
         collection=dict(collection) if collection is not None else None,
@@ -860,6 +890,13 @@ def validate_artifact(
                 ),
             ]
         )
+    if artifact.final_judge is not None:
+        problems.extend(
+            [
+                _relative_path_problem(artifact.final_judge.report_path),
+                _relative_path_problem(artifact.final_judge.fragment_path),
+            ]
+        )
     for problem in problems:
         if problem:
             errors.append(problem)
@@ -888,6 +925,15 @@ def validate_artifact(
     families = [hypothesis.method_family for hypothesis in artifact.hypotheses]
     if len(set(families)) != len(families):
         errors.append("hypothesis method families are not unique")
-    if any("predictions" in record.model_dump() for record in artifact.research.records):
+    raw_research = payload.get("research")
+    raw_records = (
+        raw_research.get("records")
+        if isinstance(raw_research, dict)
+        else None
+    )
+    if isinstance(raw_records, list) and any(
+        isinstance(record, dict) and "predictions" in record
+        for record in raw_records
+    ):
         errors.append("research records must not embed prediction arrays")
     return artifact, errors

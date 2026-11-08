@@ -30,6 +30,7 @@ SourceName = Literal[
     "datacite",
     "semantic_scholar",
     "websearch",
+    "catalog",
 ]
 
 PAPER_SOURCES: frozenset[str] = frozenset({"openalex", "arxiv", "semantic_scholar"})
@@ -50,6 +51,7 @@ SOURCE_PRIOR: dict[str, float] = {
     "datacite": 0.6,
     "wikipedia": 0.5,
     "websearch": 0.4,
+    "catalog": 0.6,
 }
 
 # Keep the best record per type, not per source.
@@ -66,6 +68,7 @@ SOURCE_RANK: dict[str, int] = {
     "huggingface": 2,
     "wikipedia": 1,
     "websearch": 0,
+    "catalog": 3,
 }
 
 RETRYABLE_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
@@ -111,6 +114,17 @@ class ResearchRecord(BaseModel):
     query: str
     relevance: float = 0.0
     also_seen_in: list[str] = Field(default_factory=list)
+    # Bibliometric fields are optional because not every source exposes them.
+    # ``author_ids`` carry a source prefix (for example ``openalex:A123``) so
+    # IDs from different authorities never collide when duplicate records merge.
+    cited_by_count: int | None = None
+    author_ids: list[str] = Field(default_factory=list)
+    author_h_index: int | None = None
+    author_citation_count: int | None = None
+    author_known: bool | None = None
+    venue_type: str | None = None
+    publisher: str | None = None
+    metrics_source: str | None = None
 
 
 class SourceAdapter(Protocol):
@@ -360,6 +374,14 @@ class BaseHttpAdapter:
         year: int | None = None,
         doi: str | None = None,
         license: str | None = None,
+        cited_by_count: int | None = None,
+        author_ids: Sequence[str] = (),
+        author_h_index: int | None = None,
+        author_citation_count: int | None = None,
+        author_known: bool | None = None,
+        venue_type: str | None = None,
+        publisher: str | None = None,
+        metrics_source: str | None = None,
     ) -> ResearchRecord:
         clean_title = clean_text(title)
         if not clean_title:
@@ -377,6 +399,14 @@ class BaseHttpAdapter:
             license=license,
             retrieved_at=retrieved_at or utc_now_iso(),
             query=query,
+            cited_by_count=cited_by_count,
+            author_ids=[str(item).strip() for item in author_ids if str(item).strip()],
+            author_h_index=author_h_index,
+            author_citation_count=author_citation_count,
+            author_known=author_known,
+            venue_type=venue_type.strip() if venue_type else None,
+            publisher=publisher.strip() if publisher else None,
+            metrics_source=metrics_source,
         )
 
     @staticmethod

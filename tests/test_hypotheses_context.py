@@ -132,6 +132,42 @@ def make_factors() -> list[Factor]:
     ]
 
 
+def test_preloaded_statistics_documents_are_consumed(tmp_path: Path) -> None:
+    profile, frame = make_profile_and_frame(tmp_path)
+    store, (root, domain, leaf, sibling), _documents = build_store(
+        tmp_path, profile, frame
+    )
+    preloaded = make_document(
+        "pap_preloaded",
+        title="Leakage and validation",
+        summary="A preloaded statistics document about data leakage.",
+        embedding=[1.0, 0.0],
+    ).model_copy(
+        update={
+            "preloaded": True,
+            "credible": True,
+            "credibility_score": 0.9,
+        }
+    )
+    try:
+        store.upsert_document(preloaded)
+        pack = build_context_pack(
+            profile=profile,
+            store=store,
+            dataset_id=profile.dataset_id,
+            factors=[],
+            screen=build_screen(profile, frame),
+        )
+    finally:
+        store.close()
+
+    assert any(
+        "Statistics corpus document" in chunk
+        and "preloaded statistics document" in chunk
+        for chunk in pack.critic_chunks
+    )
+
+
 def test_ancestor_inclusion_and_sibling_exclusion(tmp_path: Path) -> None:
     profile, frame = make_profile_and_frame(tmp_path)
     store, (root, domain, leaf, sibling), documents = build_store(

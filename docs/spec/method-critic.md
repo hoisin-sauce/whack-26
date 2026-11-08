@@ -1,6 +1,8 @@
 # Agentic method critic
 
-Status: decided in [ticket #4](https://github.com/hoisin-sauce/whack-26/issues/4). Applies to the 6–8 hour slice.
+Status: implemented in [ticket #4](https://github.com/hoisin-sauce/whack-26/issues/4).
+The critic also consumes applicable field-scoped pitfalls and optionally the
+preloaded statistics corpus.
 
 ## Purpose and boundary
 
@@ -21,6 +23,7 @@ class CriticInput(BaseModel):
     hypothesis: Hypothesis          # metadata + code
     screen: ScreenSummary           # descriptive only
     research: list[ResearchRecord]  # top 12
+    field_pitfalls: list[FieldPitfall] = []  # optional, applies_to_dataset != no, max 6
 ```
 
 The critic never receives API keys, absolute file paths outside the run, or raw PII.
@@ -36,10 +39,11 @@ Retrieval:
 1. Always include `S0-how-to-use` (claim-type gate, verdict vocabulary, output shape).
 2. Embed `hypothesis.rationale + dataset summary + factor names`.
 3. Rank sections 1–10 by cosine similarity; include the top 4.
-4. Maximum 5 chunks per call. If embedding fails, include `S0-how-to-use`, `S1-assumptions`, `S2-leakage`, `S5-diagnostics`.
+4. Maximum 5 corpus chunks per call. If embedding fails, include `S0-how-to-use`, `S1-assumptions`, `S2-leakage`, `S5-diagnostics`.
 5. If the corpus file is missing, return `verdict = "insufficient"` with a `critic.corpus_missing` issue; never silently pass.
+6. When the optional field-pitfall stage ran, append up to six pitfalls with `applies_to_dataset != "no"` as additional chunks. Sort leaf first, then deeper field level, then higher confidence. The prompt adds a caution that `unknown` is background context only.
 
-Citation convention: each issue cites a chunk ID and, when available, a source from that chunk. The artifact stores `retrieved_chunks` and `corpus_version`.
+Citation convention: each issue cites a corpus chunk ID (`S…`) and, when available, a source from that chunk. An issue raised from a field pitfall cites its `F:<field_id>:<n>` id instead. The artifact stores `retrieved_chunks`, including any field-pitfall ids, and `corpus_version`.
 
 ## Deterministic checks
 
@@ -75,7 +79,9 @@ The LLM reviews the retrieval chunks and returns one issue per material gap, usi
 - list missing information rather than guessing;
 - not mention performance metrics or statistical significance.
 
-Rubric areas: estimand and assumptions (`S1`), leakage (`S2`), multiplicity (`S3`), causal versus predictive (`S4`), regression diagnostics (`S5`), count models (`S6`), sample size (`S7`), missing data and measurement error (`S8`), time series (`S9`), reporting and reproducibility (`S10`).
+A field pitfall is not itself a finding. The LLM may raise an issue from one only when `applies_to_dataset = "yes"` or when the hypothesis code or collection metadata demonstrates the defect. `unknown` pitfalls are background context only and must not be restated as issues.
+
+Rubric areas: estimand and assumptions (`S1`), leakage (`S2`), multiplicity (`S3`), causal versus predictive (`S4`), regression diagnostics (`S5`), count models (`S6`), sample size (`S7`), missing data and measurement error (`S8`), time series (`S9`), reporting and reproducibility (`S10`), plus any applicable field-scoped pitfalls.
 
 ## Output
 
@@ -106,7 +112,7 @@ Rubric areas: estimand and assumptions (`S1`), leakage (`S2`), multiplicity (`S3
   ],
   "summary": "One paragraph, no performance claims.",
   "retrieved_chunks": ["S0-how-to-use", "S2-leakage", "S5-diagnostics"],
-  "model": "gemini-3.6-flash",
+  "model": "deepseek-flash",
   "corpus_version": "1.0.0+<sha256[:8]>"
 }
 ```
@@ -126,7 +132,7 @@ System:
 
 > You are a method critic for statistical modelling. You audit whether the derivation method can support the claim being made. You do not evaluate model performance, p-values, effect sizes, accuracy, AUC, RMSE, calibration, or out-of-sample results; another component owns that. Use only the supplied corpus chunks and derivation trace. If the information needed to judge a check is absent, say so in `missing_information` and use `insufficient` rather than guessing. Return JSON matching the schema.
 
-User: dataset profile summary, field path, factors, hypothesis metadata, code, rationale, assumptions, screen summary, retrieved corpus chunks.
+User: dataset profile summary, field path, factors, hypothesis metadata, code, rationale, assumptions, screen summary, retrieved corpus chunks, and applicable field pitfalls.
 
 Temperature 0; JSON schema enforced; `thinkingConfig.thinkingBudget = 0` when the provider supports it.
 
@@ -154,7 +160,9 @@ Temperature 0; JSON schema enforced; `thinkingConfig.thinkingBudget = 0` when th
 
 ```
 whack26/critic/
-  corpus.py    # parse, chunk IDs, embeddings, retrieval
-  checks.py    # deterministic checks
-  critic.py    # LLM call, merge, verdict
+  models.py          # CriticInput, issues, checks, verdict models
+  corpus.py          # parse, chunk IDs, embeddings, retrieval
+  checks.py          # deterministic checks
+  critic.py          # LLM call, merge, verdict
+  document_critic.py # method critique for papers/web documents
 ```

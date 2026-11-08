@@ -7,6 +7,7 @@ Live checks performed on 2026-11-07 from the development machine. Keys are in `.
 | Item | Verified value |
 |---|---|
 | Python | 3.12.4 and 3.15.0 installed; `py -3.12` works |
+| DeepSeek key | Valid; model listing and funded balance succeed |
 | Gemini key | Valid; model listing succeeds |
 | OpenAlex key | Valid and activated; both auth styles work |
 | Hugging Face token | Valid; authenticated dataset search returns 200 |
@@ -76,6 +77,41 @@ Returned a 768-element vector (first values `-0.00719808, -0.004311064, -0.03584
 
 The Gemini free tier may use prompts and responses to improve Google products, and human reviewers may read them. Do not send sensitive, confidential, or personal data. Use Cloudflare Workers AI or local `model2vec` embeddings for private data.
 
+## DeepSeek (OpenAI-compatible)
+
+Base: `https://api.deepseek.com`
+
+Auth header: `Authorization: Bearer <DEEPSEEK_API_KEY>`
+
+Probes performed on 2026-11-08:
+
+| Check | Result |
+|---|---|
+| `GET /models` | HTTP 200; `deepseek-flash` (DeepSeek-V4.1-Flash) and `deepseek-v4-pro` |
+| `GET /user/balance` | HTTP 200; account funded |
+| `POST /chat/completions` with `response_format={"type": "json_object"}` | HTTP 200; returned `{"ok": true}` |
+| `POST /embeddings` and `POST /v1/embeddings` | HTTP 404; DeepSeek has no embeddings API |
+| Default thinking (`reasoning_effort=high`) with `max_tokens=32` | Finish reason `length`; reasoning consumed the budget and content was empty |
+| `thinking={"type": "disabled"}` | HTTP 200; content returned directly in ~1 s |
+
+Structured-call shape:
+
+```json
+{
+  "model": "deepseek-flash",
+  "messages": [
+    {"role": "system", "content": "<prompt + JSON Schema>"},
+    {"role": "user", "content": "<task>"}
+  ],
+  "response_format": {"type": "json_object"},
+  "thinking": {"type": "disabled"},
+  "temperature": 0,
+  "max_tokens": 4096
+}
+```
+
+JSON mode guarantees valid JSON but does not enforce a schema, so the schema is included in the system message and callers still validate with Pydantic. Gemini remains the embedding provider.
+
 ## OpenAlex
 
 Base: `https://api.openalex.org`
@@ -95,6 +131,15 @@ cited_by_count, abstract_inverted_index, topics, keywords, is_retracted
 ```
 
 `abstract_inverted_index` maps each word to its positions; reconstruct by sorting positions. `topics[0].display_name` was `Housing Market and Economics` for the probe. Costs: search `$0.001` per call; free key budget `$1/day` after activation; new accounts are paced at `$0.10` per 5 minutes until the first dollar is spent.
+
+Bibliometric enrichment (key-gated by `WHACK26_RESEARCH_METRICS_ENABLED`):
+
+```text
+GET /works?filter=doi:<d1>|<d2>&select=id,doi,cited_by_count,authorships,primary_location&per_page=50
+GET /authors?filter=id:<A1>|<A2>&select=id,display_name,cited_by_count,summary_stats&per_page=50
+```
+
+Both OR filters accept up to 100 values; a list request returns up to 100 records. Live probe: three author IDs returned `summary_stats.h_index` 132/60/28 and `meta.cost_usd = 0.0001`. Works-by-DOI resolves arXiv/Zenodo/DataCite records to OpenAlex author IDs when a DOI exists.
 
 ## arXiv
 
@@ -122,15 +167,18 @@ Probe: `GET /records?q=housing&size=1` returned 200. Top-level keys: `hits`, `ag
 
 ## General web search
 
-Not in this slice. The core path has no general web search provider; Wikipedia REST is a labeled encyclopedic fallback, not a web search engine.
+The core path has no required general web-search provider; Wikipedia REST is the
+default labeled encyclopedic fallback. An optional `websearch` adapter is
+implemented and registers only when configured with
+`WEBSEARCH_PROVIDER=google|brave` plus `WEBSEARCH_API_KEY` (and
+`WEBSEARCH_CX` for Google). A missing provider/key is a normal skip, not a run
+failure.
 
 | Provider | Free tier | Status |
 |---|---|---|
-| Brave Search API | No free plan as of 2026-11; a $5 monthly credit, then $5 per 1,000 queries | Not used; removed from `.env.example` |
-| Google Programmable Search JSON API | 100 queries/day free; requires an API key and a Programmable Search Engine ID | Optional future adapter, not wired in |
+| Brave Search API | No free plan as of 2026-11; a $5 monthly credit, then $5 per 1,000 queries | Implemented in the optional adapter; configure `WEBSEARCH_PROVIDER=brave` |
+| Google Programmable Search JSON API | 100 queries/day free; requires an API key and a Programmable Search Engine ID | Implemented in the optional adapter; configure `WEBSEARCH_PROVIDER=google`, `WEBSEARCH_API_KEY`, and `WEBSEARCH_CX` |
 | Self-hosted SearXNG | Free software, but no hosted API or uptime guarantee | Out of scope |
-
-If a true general web search is required later, Google Programmable Search is the smallest free-tier addition; the trade-off is a second credential and a 100-query daily cap.
 
 ## Demo data URLs
 
@@ -144,6 +192,7 @@ If a true general web search is required later, Google Programmable Search is th
 | Attempt | Result | Consequence |
 |---|---|---|
 | OpenAI-compatible Gemini endpoint | 120 s timeout, 0 bytes | Use native REST via `httpx` |
+| DeepSeek embeddings endpoint | HTTP 404 | Keep Gemini for embeddings |
 | `gemini-3.8-flash` default thinking | 75–120 s and/or empty content | Default to `gemini-3.6-flash`; disable thinking |
 | `gemini-3.8-flash` with `thinkingBudget=0` | 120 s timeout | Keep it opt-in only |
 | Google Dataset Search | No public query API | Dropped |
@@ -155,11 +204,14 @@ If a true general web search is required later, Google Programmable Search is th
 
 | Setting | Value |
 |---|---|
-| `GEMINI_MODEL` | `gemini-3.6-flash` |
+| `WHACK26_LLM_PROVIDER` | `deepseek` |
+| `DEEPSEEK_MODEL` | `deepseek-flash` |
+| `WHACK26_EMBED_PROVIDER` | `gemini` |
 | `GEMINI_EMBED_MODEL` | `gemini-embedding-2` |
 | `EMBED_DIMS` | 768 |
-| `thinkingBudget` | 0 for deterministic JSON/code calls |
+| DeepSeek `thinking` | `{"type": "disabled"}` for deterministic JSON/code calls |
+| Gemini `thinkingBudget` | 0 for deterministic JSON/code calls |
 | HTTP client | `httpx.Client(timeout=20.0, follow_redirects=True)` |
-| User-Agent | `whack26-research/0.1 (local demo)` |
+| User-Agent | `whack26-research/0.1 (https://github.com/hoisin-sauce/whack-26)` |
 | OpenAlex `per_page` | 10 (slice); 100 only for bulk |
 | Cache TTL | 24 h papers/datasets; 7 d Wikipedia |

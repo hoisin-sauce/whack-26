@@ -53,6 +53,13 @@ class FoldResult(BaseModel):
     test_rows: int
     metrics: dict[str, float] = Field(default_factory=dict)
     baseline_metrics: dict[str, float] = Field(default_factory=dict)
+    # In-sample scores and ranges let the final judge compute a real
+    # train/CV gap and test extrapolation without re-fitting the model.
+    train_metrics: dict[str, float] = Field(default_factory=dict)
+    train_target_min: float | None = None
+    train_target_max: float | None = None
+    prediction_min: float | None = None
+    prediction_max: float | None = None
 
 
 class Diagnostic(BaseModel):
@@ -60,6 +67,9 @@ class Diagnostic(BaseModel):
     status: Literal["ok", "warn", "fail", "not_applicable"] = "ok"
     value: float | None = None
     message: str = ""
+    # Structured raw values (statistic, lags, degrees of freedom) so the final
+    # judge can recompute p-values instead of parsing the message string.
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModelCandidate(BaseModel):
@@ -86,6 +96,10 @@ class ModelSearchResult(BaseModel):
     seed: int = 0
     backend: str = "core"
     warnings: list[str] = Field(default_factory=list)
+    # Serializable copies of the internal typing and screening outputs.  They
+    # carry feature provenance and corrected p-values for the final judge.
+    dataset_info: dict[str, Any] | None = None
+    screen: dict[str, Any] | None = None
 
 
 class ModelSearchConfig(BaseModel):

@@ -1,13 +1,16 @@
 # Field classification
 
-Status: decided in [ticket #2](https://github.com/hoisin-sauce/whack-26/issues/2). Applies to the 6–8 hour slice.
+Status: implemented in [ticket #2](https://github.com/hoisin-sauce/whack-26/issues/2).
+This document is the original decision record for the user-dataset classifier.
 
 > **Superseded in part (2026-11-08).** The original slice deferred promotion,
 > rotation, and level-shifting. `whack26/hierarchy/` now implements branching,
-> promotion with subtree re-levelling, and audited path recomputation; see
+> promotion with subtree re-levelling, audited path recomputation, and the v4
+> `field_operations`/`store_meta` tables; see
 > [`field-branching-and-model-search.md`](field-branching-and-model-search.md).
-> The creation/assignment rules below still describe the default classifier,
-> which is not yet routed through the hierarchy package.
+> Scraped research documents use hierarchy placement by default. The
+> creation/assignment rules below still describe the user-dataset classifier,
+> which is not routed through the hierarchy package.
 
 ## Scope
 
@@ -104,6 +107,13 @@ All values live in `config.py` and are overridable by environment variables usin
 - Centroids are recomputed from member embeddings, never incrementally approximated in this slice.
 
 ## Store
+
+> **Historical layout.** The DDL below is the original v1 field-store schema.
+> The current store is **v4**: `documents` + the `datasets` extension table,
+> `document_fields`, `document_links`, `document_comparisons`,
+> `document_critiques`, `document_fetches`, `field_operations`,
+> `research_models`, and `store_meta`. `whack26/store.py` is the authority; the
+> v1→v2→v3→v4 migrations are tested.
 
 SQLite, `cache/fields.db` (path configurable). Brute-force cosine is fine at this scale. Enable foreign keys on every connection:
 

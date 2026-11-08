@@ -19,6 +19,7 @@ from typing import Any, Iterable, Sequence
 from ...common import redact_secrets
 from ...config import Settings
 from ..base import DATASET_SOURCES, ResearchRecord
+from ..metrics import merge_document_metrics, metrics_metadata
 from .identity import canonicalize_url, metadata_identity, title_identity, url_hash
 from .models import (
     Document,
@@ -85,6 +86,7 @@ def _record_to_document(record: ResearchRecord) -> Document:
         metadata["doi"] = record.doi
     if record.also_seen_in:
         metadata["also_seen_in"] = list(record.also_seen_in)
+    metadata.update(metrics_metadata(record))
 
     return Document(
         id=_document_id(kind, canonical, content_hash),
@@ -97,6 +99,7 @@ def _record_to_document(record: ResearchRecord) -> Document:
         url_hash=url_hash(canonical) if canonical else None,
         content_sha512=content_hash,
         authors=list(record.authors),
+        publisher=record.publisher,
         published_at=str(record.year) if record.year is not None else None,
         license=record.license,
         metadata=metadata,
@@ -273,19 +276,36 @@ def _classify_document(
     settings: Settings,
     warnings: list[str],
 ) -> Document:
-    from .classify import classify_document
+    from .classify import classify_document, classify_document_hierarchically
 
-    try:
-        path = classify_document(
-            document,
-            store=store,
-            llm=llm,
-            embeddings=embeddings,
-            settings=settings,
-        )
-    except Exception as exc:  # noqa: BLE001 - a missing path must not stop the run
-        warnings.append(f"scrape_classification_failed:{document.id}: {_error(exc)}")
-        path = []
+    path: list[str] = []
+    if getattr(settings, "hierarchy_placement_enabled", False):
+        try:
+            path = classify_document_hierarchically(
+                document,
+                store=store,
+                llm=llm,
+                embeddings=embeddings,
+                settings=settings,
+            )
+        except Exception as exc:  # noqa: BLE001 - fall back to create/assign
+            warnings.append(
+                f"scrape_hierarchy_placement_failed:{document.id}: {_error(exc)}"
+            )
+    if not path:
+        try:
+            path = classify_document(
+                document,
+                store=store,
+                llm=llm,
+                embeddings=embeddings,
+                settings=settings,
+            )
+        except Exception as exc:  # noqa: BLE001 - a missing path must not stop the run
+            warnings.append(
+                f"scrape_classification_failed:{document.id}: {_error(exc)}"
+            )
+            path = []
 
     status = "classified" if path else document.status
     try:
@@ -434,6 +454,15 @@ def _dedupe_seeds(
             warnings.append(f"scrape_identity_lookup_failed:{document.id}: {_error(exc)}")
 
         if existing is not None:
+            merged = merge_document_metrics(existing, document)
+            if merged is not existing:
+                try:
+                    existing = store.upsert_document(merged)
+                except Exception as exc:  # noqa: BLE001 - reusing is still useful
+                    warnings.append(
+                        f"scrape_store_failed:{existing.id}: {_error(exc)}"
+                    )
+                    existing = merged
             if not existing.summary or not existing.summary_embedding:
                 existing = _process_document(
                     existing,

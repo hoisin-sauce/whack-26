@@ -1,6 +1,8 @@
 # Hypotheses: generation, execution, and the cheap screen
 
-Status: decided in [ticket #9](https://github.com/hoisin-sauce/whack-26/issues/9). Applies to the 6–8 hour slice.
+Status: implemented in [ticket #9](https://github.com/hoisin-sauce/whack-26/issues/9).
+The optional bounded agent loop (`whack26/hypotheses/agent_loop.py`) and the
+context pack (`whack26/hypotheses/context.py`) extend the one-shot generator.
 
 ## Contract
 
@@ -103,17 +105,26 @@ Pick the link function from the target profile: numeric → identity; binary →
 
 ## Generation
 
-Three LLM calls, one per family, with the same context:
+The default one-shot path makes three LLM calls, one per family, with the same
+context:
 
 - dataset profile and summary;
-- field path;
+- field path and, when available, the bounded context pack;
 - factors with mappings and evidence IDs;
 - top five research records (title, year, abstract ≤ 1,200 chars);
 - target and time column;
 - cheap-screen summary;
+- optional model-search result, research models, variants, collection metadata,
+  and field pitfalls;
 - the contract above;
 - the allowed imports;
 - the family description.
+
+When `WHACK26_AGENT_LOOP_ENABLED=1`, `ModelAgentLoop` replaces the one-shot
+generator with a bounded propose → execute → diagnose → refine/replace/discard
+cycle. It receives the same context plus static errors, execution errors, and
+model-search diagnostics, and records every attempt within the configured
+attempt/time budgets.
 
 The LLM returns:
 
@@ -242,5 +253,8 @@ whack26/hypotheses/
   execute.py    # subprocess orchestration, predictions CSV
   runner.py     # isolated child process
   repair.py     # feedback prompts
+  variants.py   # original/anonymized/jumbled-label evaluation
+  context.py    # bounded context pack
+  agent_loop.py # optional propose/execute/diagnose/refine loop
 whack26/screen.py
 ```

@@ -989,8 +989,8 @@ def render_markdown(
         f"Generated: {generated_at}",
         f"Commit: `{commit}`",
         f"Mode: {mode}",
-        f"LLM: `{settings.llm_provider}` / `{settings.gemini_model}`",
-        f"Embeddings: `{settings.embed_provider}` / `{settings.gemini_embed_model}` "
+        f"LLM: `{settings.llm_provider}` / `{settings.llm_model_name}`",
+        f"Embeddings: `{settings.embed_provider}` / `{settings.embed_model_name}` "
         f"at {settings.embed_dims} dimensions",
         f"Datasets: {len(entries)}",
         f"Overall status: **{status.upper()}**",
@@ -1167,9 +1167,9 @@ def build_json(
         "mode": mode,
         "provider": {
             "llm": settings.llm_provider,
-            "llm_model": settings.gemini_model,
+            "llm_model": settings.llm_model_name,
             "embeddings": settings.embed_provider,
-            "embedding_model": settings.gemini_embed_model,
+            "embedding_model": settings.embed_model_name,
             "embed_dims": settings.embed_dims,
         },
         "datasets": [
@@ -1276,12 +1276,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     settings = Settings.from_env(mock=args.mock)
-    if not settings.mock and not settings.gemini_api_key:
-        print(
-            "error: GEMINI_API_KEY is required for a live run; use --mock for a dry run",
-            file=sys.stderr,
-        )
-        return 2
+    if not settings.mock:
+        required_keys: list[tuple[str, str | None]] = []
+        if settings.llm_provider == "deepseek":
+            required_keys.append(("DEEPSEEK_API_KEY", settings.deepseek_api_key))
+        if settings.llm_provider == "gemini" or settings.embed_provider == "gemini":
+            required_keys.append(("GEMINI_API_KEY", settings.gemini_api_key))
+        missing = [name for name, value in required_keys if not value]
+        if missing:
+            print(
+                f"error: {', '.join(missing)} required for a live run; "
+                "use --mock for a dry run",
+                file=sys.stderr,
+            )
+            return 2
 
     scores: dict[str, HumanScore] = {}
     if args.scores:

@@ -149,6 +149,7 @@ class DatasetProfile(BaseModel):
     rows: int
     columns: list[ColumnProfile]
     description: str | None
+    source_site: str | None = None
     target: TargetChoice | None
     time_column: str | None
     warnings: list[str]
@@ -599,6 +600,7 @@ def build_profile(
     loaded: LoadedDataset,
     *,
     description: str | None = None,
+    source_site: str | None = None,
     target: str | None = None,
     llm: Any = None,
 ) -> DatasetProfile:
@@ -653,6 +655,7 @@ def build_profile(
         rows=len(frame),
         columns=columns,
         description=description,
+        source_site=source_site,
         target=target_choice,
         time_column=time_column,
         warnings=warnings,
@@ -778,6 +781,8 @@ def build_summary(profile: DatasetProfile, frame: pd.DataFrame) -> str:
     lines = [f"Dataset: {_display_name(profile.source_path)}"]
     if profile.description:
         lines.append(f"Description: {_clean_text(profile.description, limit=500)}")
+    if profile.source_site:
+        lines.append(f"Source site: {_clean_text(profile.source_site, limit=300)}")
     lines.append(f"Rows: {profile.rows}; Columns: {len(profile.columns)}")
 
     if profile.target is None:

@@ -20,9 +20,7 @@ from .summarize import embed_summary, summarize_document
 
 def embedding_model_name(settings: Settings) -> str:
     """Return the model identifier recorded next to an embedding."""
-    if settings.embed_provider == "gemini":
-        return settings.gemini_embed_model
-    return settings.embed_provider
+    return settings.embed_model_name
 
 
 def _merge_links(existing: Any, extracted: list[str]) -> list[Any]:

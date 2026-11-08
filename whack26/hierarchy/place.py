@@ -635,35 +635,9 @@ def place_document(
                         reason="created a root field",
                         run_id=run_id,
                     )
-                if len(roots) < settings.max_roots:
-                    name, description, vector = propose_field(
-                        document,
-                        parent=None,
-                        store=store,
-                        llm=llm,
-                        embeddings=embeddings,
-                        settings=settings,
-                    )
-                    branch = branch_field(
-                        parent=None,
-                        name=name,
-                        description=description,
-                        description_embedding=vector,
-                        document=document,
-                        store=store,
-                        llm=llm,
-                        settings=settings,
-                        run_id=run_id,
-                    )
-                    return _branch_and_attach(
-                        document,
-                        branch,
-                        store=store,
-                        settings=settings,
-                        llm=llm,
-                        reason="created a root field; no existing root was related",
-                        run_id=run_id,
-                    )
+                # Existing roots are a better fallback than creating a new
+                # top-level domain for every weakly related document. A new
+                # root is only created when the tree is empty.
                 nearest = max(scored, key=lambda item: item[0])[1]
                 return attach_document(
                     document,
@@ -671,7 +645,7 @@ def place_document(
                     store=store,
                     settings=settings,
                     confidence=field_score(embedding, nearest, settings),
-                    reason="max_roots reached; attached to the nearest root",
+                    reason="no root was directly related; attached to the nearest root",
                     llm=llm,
                     run_id=run_id,
                 )

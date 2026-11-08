@@ -29,6 +29,7 @@ from .datagov import DataGovAdapter
 from .dataverse import DataverseAdapter
 from .huggingface import HuggingFaceAdapter
 from .kaggle import KaggleAdapter
+from .metrics import enrich_records
 from .normalize import deduplicate, rank_records
 from .openalex import OpenAlexAdapter
 from .openml import OpenMLAdapter
@@ -394,6 +395,26 @@ def _build_adapters(
     return adapters
 
 
+def build_adapters(
+    settings: Settings,
+    *,
+    cache: ResearchCache,
+    dataset_id: str,
+    offline: bool,
+) -> dict[str, SourceAdapter]:
+    """Public adapter factory shared by other research stages.
+
+    Kept as a thin wrapper so the existing ``_build_adapters`` monkeypatch
+    seam in the test suite continues to work.
+    """
+    return _build_adapters(
+        settings,
+        cache=cache,
+        dataset_id=dataset_id,
+        offline=offline,
+    )
+
+
 def _research_keywords(records: Sequence[ResearchRecord], limit: int = 12) -> list[str]:
     counts: dict[str, int] = {}
     stop = {
@@ -439,8 +460,14 @@ def run_research(
     cache_path: Path | None = None,
     offline: bool | None = None,
     refresh: bool = False,
+    catalog_records: Sequence[ResearchRecord] = (),
 ) -> ResearchResult:
-    """Fetch and rank research for one dataset. Never raises on source failure."""
+    """Fetch and rank research for one dataset. Never raises on source failure.
+
+    ``catalog_records`` are DB-first candidates (see
+    :func:`whack26.research.catalog.catalog_research_records`); they are
+    deduplicated and ranked together with the external results.
+    """
     offline = settings.offline if offline is None else offline
 
     owned_client = client is None
@@ -456,8 +483,8 @@ def run_research(
         offline=offline,
         refresh=refresh,
     )
-    records: list[ResearchRecord] = []
-    sources_used: list[str] = []
+    records: list[ResearchRecord] = list(catalog_records)
+    sources_used: list[str] = ["catalog"] if catalog_records else []
     try:
         queries, warnings = generate_queries(
             summary=summary,
@@ -512,6 +539,21 @@ def run_research(
             top_k=RESEARCH_TOP_K,
             warnings=warnings,
         )
+        if settings.research_metrics_enabled:
+            try:
+                ranked = enrich_records(
+                    ranked,
+                    settings=settings,
+                    client=client,
+                    cache=cache,
+                    dataset_id=profile.dataset_id,
+                    warnings=warnings,
+                )
+            except Exception as exc:  # noqa: BLE001 - metrics are advisory
+                warnings.append(
+                    "research_metrics_failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
         limited = any(
             getattr(adapter, "limited_mode", False)
             for adapter in adapters.values()

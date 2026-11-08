@@ -211,6 +211,7 @@ def run(
     *,
     offline: bool = False,
     embeddings: Any = None,
+    catalog_records: tuple[ResearchRecord, ...] = (),
 ) -> ResearchResult:
     return run_research(
         profile=make_profile(),
@@ -228,6 +229,7 @@ def run(
         client=client,
         cache_path=cache_path,
         offline=offline,
+        catalog_records=catalog_records,
     )
 
 
@@ -423,6 +425,37 @@ def test_run_research_fetches_ranks_and_caches_all_sources(tmp_path: Path) -> No
     assert by_source["zenodo"].authors == ["Alan Turing"]
     assert by_source["wikipedia"].license == "CC BY-SA 4.0"
     assert all(record.relevance > 0 for record in result.records)
+
+
+def test_run_research_includes_catalog_records(tmp_path: Path) -> None:
+    arXivAdapter.reset_rate_limit()
+    catalog_record = ResearchRecord(
+        id="catalog:pap_housing",
+        source="catalog",
+        source_id="pap_housing",
+        title="A catalogued housing study",
+        url="catalog:pap_housing",
+        retrieved_at="2026-01-01T00:00:00Z",
+        query="catalog",
+        relevance=0.8,
+        also_seen_in=["openalex"],
+    )
+    calls: list[str] = []
+    client = make_client(make_handler(calls))
+    try:
+        result = run(
+            ScriptedLLM(QUERY_PAYLOAD),
+            tmp_path / "cache.db",
+            client,
+            catalog_records=(catalog_record,),
+        )
+    finally:
+        client.close()
+
+    assert "catalog" in result.sources_used
+    assert "catalog:pap_housing" in {record.id for record in result.records}
+    assert catalog_record.title in {record.title for record in result.records}
+    assert calls  # external research still ran alongside the catalog records
 
 
 def test_run_research_replays_cache_without_http(tmp_path: Path) -> None:

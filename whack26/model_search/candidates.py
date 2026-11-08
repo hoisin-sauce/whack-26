@@ -435,6 +435,71 @@ def _cap(specs: Sequence[ModelSpec], max_candidates: int) -> list[ModelSpec]:
     return capped
 
 
+def _optional_tree_specs(
+    target_kind: TargetKind,
+    numeric: Sequence[str],
+    *,
+    max_features: int,
+) -> list[ModelSpec]:
+    """Return tree/forest/boosting specs when scikit-learn is installed."""
+    if not numeric:
+        return []
+    try:
+        from .trees import sklearn_available
+
+        if not sklearn_available():
+            return []
+    except Exception:  # noqa: BLE001 - an optional import must not break search
+        return []
+    features = list(numeric)[: max(1, int(max_features))]
+    return [
+        ModelSpec(
+            family="tree",
+            target_kind=target_kind,
+            features=features,
+            hyperparameters={"max_depth": 5, "random_state": 0},
+        ),
+        ModelSpec(
+            family="forest",
+            target_kind=target_kind,
+            features=features,
+            hyperparameters={"n_estimators": 80, "random_state": 0},
+        ),
+        ModelSpec(
+            family="gradient_boosting",
+            target_kind=target_kind,
+            features=features,
+            hyperparameters={"n_estimators": 80, "random_state": 0},
+        ),
+    ]
+
+
+def _optional_sindy_specs(target_kind: TargetKind) -> list[ModelSpec]:
+    """Return a SINDy spec for time-series targets when pysindy is installed."""
+    if target_kind != "time_series":
+        return []
+    try:
+        from .sindy import pysindy_available
+
+        if not pysindy_available():
+            return []
+    except Exception:  # noqa: BLE001 - an optional import must not break search
+        return []
+    return [
+        ModelSpec(
+            family="sindy",
+            target_kind=target_kind,
+            features=[],
+            hyperparameters={
+                "library": "polynomial",
+                "degree": 2,
+                "threshold": 0.1,
+                "n_terms": 1,
+            },
+        )
+    ]
+
+
 def generate_candidates(
     *,
     target: str,
@@ -447,6 +512,7 @@ def generate_candidates(
     offset: str | None = None,
     max_features: int = 10,
     max_candidates: int = 100,
+    backend: str = "core",
 ) -> list[ModelSpec]:
     """Generate a deterministic candidate pool for ``target``.
 
@@ -474,6 +540,11 @@ def generate_candidates(
         Optional exposure/offset column for Poisson/NB candidates.
     max_features, max_candidates:
         Feature and candidate hard caps.
+    backend:
+        ``core`` keeps the numpy/scipy pool. ``sklearn`` adds tree, forest,
+        and gradient-boosting specs; ``full`` also adds a SINDy spec for
+        time-series targets. Optional backends are skipped when their package
+        is unavailable.
 
     Returns
     -------
@@ -538,6 +609,18 @@ def generate_candidates(
 
     if target_kind in ("continuous", "time_series", "binary", "multiclass", "count"):
         specs.extend(_group_specs(target_kind, numeric, categorical))
+
+    backend_name = str(backend or "core").strip().lower()
+    if backend_name in {"sklearn", "full"}:
+        specs.extend(
+            _optional_tree_specs(
+                target_kind,
+                numeric,
+                max_features=max_features,
+            )
+        )
+    if backend_name == "full":
+        specs.extend(_optional_sindy_specs(target_kind))
 
     return _cap(_dedupe(specs), int(max_candidates))
 

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
 
+import pytest
+
+from whack26.hypotheses import execute
 from whack26.hypotheses.execute import run_module
 
 DATASET = "x,y\n1,2\n2,4\n3,6\n4,8\n5,10\n"
@@ -135,3 +140,164 @@ def test_runner_keeps_generated_code_output_out_of_the_envelope(tmp_path: Path) 
     assert result.code_stdout is not None
     assert "hello from generated code" in result.code_stdout
     assert not (run_dir / "hypotheses" / "__pycache__").exists()
+
+
+def test_runner_timeout_is_reported(tmp_path: Path) -> None:
+    code = VALID_MODULE.replace(
+        "    np.random.seed(seed)",
+        "    while True:\n        pass",
+    )
+    run_dir, module_path, dataset_path = prepare(tmp_path, code)
+
+    result = run_module(module_path, dataset_path, 0, run_dir=run_dir, timeout=0.2)
+
+    assert result.status == "timeout"
+    assert result.runtime_ms == 200
+    assert "timeout after" in (result.error or "")
+
+
+def test_runner_start_failure_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, module_path, dataset_path = prepare(tmp_path)
+
+    def fail(*args, **kwargs):
+        raise OSError("cannot spawn")
+
+    monkeypatch.setattr(execute.subprocess, "run", fail)
+
+    result = run_module(module_path, dataset_path, 0, run_dir=run_dir)
+
+    assert result.status == "runner_error"
+    assert "could not start the runner" in (result.error or "")
+
+
+def test_missing_json_envelope_is_a_runner_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, module_path, dataset_path = prepare(tmp_path)
+
+    monkeypatch.setattr(
+        execute.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args, returncode=1, stdout="no envelope here\n", stderr="boom"
+        ),
+    )
+
+    result = run_module(module_path, dataset_path, 0, run_dir=run_dir)
+
+    assert result.status == "runner_error"
+    assert "without a JSON envelope" in (result.error or "")
+    assert result.code_stderr == "boom"
+
+
+def test_invalid_predictions_file_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, module_path, dataset_path = prepare(tmp_path)
+    predictions = run_dir / "predictions" / "bad.csv"
+    predictions.parent.mkdir(parents=True)
+    predictions.write_text("row_index,wrong\n0,1\n", encoding="utf-8")
+    envelope = {
+        "applies": True,
+        "n_predictions": 1,
+        "predictions_path": "predictions/bad.csv",
+    }
+
+    monkeypatch.setattr(
+        execute.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(envelope) + "\n",
+            stderr="",
+        ),
+    )
+
+    result = run_module(module_path, dataset_path, 0, run_dir=run_dir)
+
+    assert result.status == "invalid_output"
+    assert "must have columns row_index,prediction" in (result.error or "")
+
+
+def test_invalid_prediction_count_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, module_path, dataset_path = prepare(tmp_path)
+    envelope = {
+        "applies": True,
+        "n_predictions": 0,
+        "predictions_path": "predictions/x.csv",
+    }
+
+    monkeypatch.setattr(
+        execute.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps(envelope) + "\n",
+            stderr="",
+        ),
+    )
+
+    result = run_module(module_path, dataset_path, 0, run_dir=run_dir)
+
+    assert result.status == "invalid_output"
+    assert "invalid prediction count" in (result.error or "")
+
+
+def test_oversized_stdout_is_truncated_before_parsing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, module_path, dataset_path = prepare(tmp_path)
+    envelope = {
+        "applies": True,
+        "n_predictions": 5,
+        "predictions_path": "predictions/hyp_test.csv",
+    }
+    pd_frame = "row_index,prediction\n" + "".join(
+        f"{index},0.0\n" for index in range(5)
+    )
+    predictions = run_dir / "predictions" / "hyp_test.csv"
+    predictions.parent.mkdir(parents=True)
+    predictions.write_text(pd_frame, encoding="utf-8")
+    stdout = json.dumps(envelope) + "\n" + ("x" * 4096)
+    monkeypatch.setattr(execute, "MAX_STDOUT_BYTES", 256)
+    monkeypatch.setattr(
+        execute.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=args, returncode=0, stdout=stdout, stderr=""
+        ),
+    )
+
+    result = run_module(module_path, dataset_path, 0, run_dir=run_dir)
+
+    assert result.status == "ok"
+    assert result.n_predictions == 5
+
+
+def test_last_json_line_ignores_noise_and_invalid_json() -> None:
+    text = 'noise\n{"not": "the last"}\n{broken\n{"ok": true}\ntrailing'
+
+    assert execute._last_json_line(text) == {"ok": True}
+    assert execute._last_json_line("") is None
+    assert execute._last_json_line("no json at all") is None
+
+
+def test_failure_classification_distinguishes_shape_errors() -> None:
+    assert (
+        execute._classify_failure(
+            "predictions and row_index have different lengths: 2 != 1"
+        )
+        == "invalid_output"
+    )
+    assert (
+        execute._classify_failure("run() must return a dict")
+        == "invalid_output"
+    )
+    assert execute._classify_failure("ValueError: boom") == "runtime_error"
+    assert execute._classify_failure(None) == "runtime_error"

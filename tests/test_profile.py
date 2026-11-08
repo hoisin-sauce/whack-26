@@ -49,6 +49,19 @@ def _load_demo(tmp_path: Path) -> LoadedDataset:
     return read_dataset(path, target="price")
 
 
+def test_source_site_is_profiled_and_summarized(tmp_path: Path) -> None:
+    loaded = _load_demo(tmp_path)
+    profile = build_profile(
+        loaded,
+        description="Demo data.",
+        source_site="https://example.com/datasets/demo",
+        target="price",
+    )
+    assert profile.source_site == "https://example.com/datasets/demo"
+    summary = build_summary(profile, loaded.frame)
+    assert "Source site: https://example.com/datasets/demo" in summary
+
+
 def _missing_file_dataset(
     tmp_path: Path, frame: pd.DataFrame, name: str = "missing.csv"
 ) -> LoadedDataset:

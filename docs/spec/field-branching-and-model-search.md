@@ -1,10 +1,19 @@
 # Field branching, swapping, and automated regression model search
 
-Status: implementation plan — model search implemented and wired; hierarchy
-implemented but library-only. The SQLite schema is now v4, the hierarchy package
-is `whack26/hierarchy/`, and model search is `whack26/model_search/`. `run.py`
-wires model search behind `--model-search`; `classify.py` is not yet routed
-through the hierarchy package.
+Status: **implemented in part**. Model search is implemented and wired; the
+hierarchy is implemented and used for scraped documents. The SQLite schema is
+v4, the hierarchy package is `whack26/hierarchy/`, and model search is
+`whack26/model_search/`. `run.py` wires model search behind `--model-search`
+(or `--full`); `research/scrape/classify.py` uses hierarchy placement, while
+`classify.py` still uses create/assign for user datasets. Tree/forest/boosting
+and SINDy are wired through `--backend sklearn|full`; the default `core`
+candidate pool remains numpy/scipy-only. Partial-dependence plots are not
+implemented.
+
+> **Historical build plan.** Sections that describe the original v3 schema,
+> the pre-wiring state, and the parallel build waves are kept as the design
+> record. The current authorities are `whack26/store.py`,
+> `whack26/hierarchy/`, `whack26/model_search/`, and the spec index.
 
 ## 1. Goal
 
@@ -48,14 +57,21 @@ The phrase "automated regression testing" is treated in two senses:
   `document_critiques`, `document_fetches`, `field_operations`,
   `research_models`.
 - `whack26/classify.py`: top-down, top-k + LLM create/assign, max depth 4.
-- `whack26/research/scrape/classify.py`: document counterpart; assigns a path
-  but does not maintain the tree beyond create/assign.
+- `whack26/research/scrape/classify.py`: document counterpart; uses
+  `whack26/hierarchy/place.py` for placement by default.
+- `whack26/hierarchy/`: placement, branching, promotion, audited path
+  recomputation, duplicate-sibling merges, and `field_operations` logging.
+- `whack26/model_search/`: typed data/target analysis, screening, repeated and
+  chronological splits, core candidates, optional tree/SINDy backends,
+  selection, diagnostics, and report generation.
 - `whack26/screen.py`: target distribution, missingness, Pearson/Spearman,
   group means/rates, time trend. No p-values, no model fitting.
 - `whack26/hypotheses/`: three families (`linear_model`, `group_comparison`,
-  `interaction_or_derived`), numpy/scipy, AST validation, subprocess runner.
-- `stats_engine.py`: four-layer validation engine; available but not wired into
-  the run. Formal statistical validation remains external.
+  `interaction_or_derived`), numpy/scipy, AST validation, subprocess runner,
+  optional agent loop.
+- `stats_engine.py`: four-layer validation engine, wired through
+  `whack26/validation/` for continuous return-like targets and
+  `stats_engine.validate_model` for general targets.
 - `docs/devplan-gap-audit.md` lists the ambiguity in the devplan's hierarchy
   prose; this plan resolves it with explicit invariants and thresholds.
 
@@ -90,10 +106,11 @@ The field a document is attached to. Its path is the ancestor chain from the
 root to the leaf. Existing `document_fields` stores that chain; this plan adds
 `documents.leaf_field_id` as the explicit source of truth.
 
-### 3.2 Schema v3
+### 3.2 Original schema v3 (current is v4)
 
-This is the **v3 target schema**; `whack26/store.py` remains at v2 until the
-schema package (S0) lands. Add to `cache/fields.db`:
+This is the **v3 target schema** from the original plan. It has since landed and
+been extended to v4 by collection metadata and research models;
+`whack26/store.py` is the current authority. Add to `cache/fields.db`:
 
 ```sql
 ALTER TABLE documents ADD COLUMN leaf_field_id TEXT REFERENCES fields(id);
@@ -583,9 +600,9 @@ Candidate pools:
 - multinomial: multiclass target;
 - Poisson/negative binomial: count target, with exposure/offset when available;
 - group comparison: categorical or quantile-binned factor means/rates;
-- tree/forest/boosting: optional sklearn backend;
-- SINDy: optional, time-series target with a library of polynomial/sin/cos/exp
-  terms.
+- tree/forest/boosting: sklearn backend, enabled by `--backend sklearn|full`;
+- SINDy: time-series target with a library of polynomial/sin/cos/exp terms,
+  enabled by `--backend full`.
 
 Cap the candidate count (`model_search_max_candidates`, default 100) and rank
 the pool before fitting.
@@ -666,14 +683,19 @@ reject a model.
 
 ### 4.11 Dependencies
 
-Keep the core install numpy/scipy/pandas. Add an optional
-`requirements-model-search.txt`:
+The core install keeps numpy/scipy/pandas and now includes the two backends
+used by the model search:
+
+```text
+scikit-learn>=1.5,<2
+pysindy>=2,<3
+```
+
+`requirements-model-search.txt` adds the remaining optional backend:
 
 ```text
 -r requirements.txt
-scikit-learn>=1.5,<2
 statsmodels>=0.14,<1
-pysindy>=2,<3
 ```
 
 `WHACK26_MODEL_SEARCH_BACKEND=core|sklearn|statsmodels|full` defaults to `core`.
@@ -705,7 +727,7 @@ candidates; optional backends unlock trees, richer diagnostics, and SINDy.
 - diagnostics: expected flags on synthetic heteroskedastic/overdispersed data;
 - no leakage: a target-derived feature is never selected;
 - integration: model search feeds hypotheses and artifact;
-- regression: existing 486-test suite stays green.
+- regression: the existing full suite stays green.
 
 **Acceptance**
 
@@ -813,7 +835,7 @@ queue and integration tests the bottleneck rather than the work.
   field as an ancestor.
 - `verify_paths` is clean after every operation.
 - The audit log records every structural change.
-- Existing 486-test suite plus new hierarchy tests pass.
+- The existing full suite plus new hierarchy tests pass.
 
 ### Model search
 
@@ -824,7 +846,7 @@ queue and integration tests the bottleneck rather than the work.
 - The selected model beats the baseline by the configured margin.
 - Artifact/preview/CLI integration works; `model-search` inspection command
   exists.
-- Existing 486-test suite plus new model-search tests pass.
+- The existing full suite plus new model-search tests pass.
 
 ## 7. Risks and mitigations
 

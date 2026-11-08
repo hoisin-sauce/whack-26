@@ -23,10 +23,17 @@ PYTHON_MAX_EXCLUSIVE = (3, 14)
 CORE_PACKAGES = ("pandas", "numpy", "httpx", "pydantic", "scipy")
 OPTIONAL_PACKAGES = ("openpyxl", "xlrd", "pyarrow")
 OPENALEX_PROBE = "https://api.openalex.org/works"
-GEMINI_PROBE_SCHEMA = {
+PROBE_SCHEMA = {
     "type": "object",
     "properties": {"ok": {"type": "boolean"}},
     "required": ["ok"],
+}
+PROVIDER_LABELS = {
+    "deepseek": "DeepSeek",
+    "gemini": "Gemini",
+    "cloudflare": "Cloudflare",
+    "local": "Local",
+    "mock": "Mock",
 }
 
 
@@ -119,14 +126,27 @@ def _check_corpus(path: Path) -> Check:
     return Check("Pitfalls corpus", "PASS", f"{path.name} ({len(text)} chars, version {version})")
 
 
+def _provider_label(provider: str) -> str:
+    return PROVIDER_LABELS.get(provider, provider.title())
+
+
 def _looks_placeholder(value: str | None) -> bool:
     if not value:
         return False
     lowered = value.strip().lower()
     return lowered.startswith(("your-", "replace-", "changeme")) or lowered in {
+        "your-deepseek-api-key",
         "your-gemini-api-key",
         "your-openalex-api-key",
     }
+
+
+def _key_check(name: str, value: str | None, env_name: str) -> Check:
+    has_key = bool(value) and not _looks_placeholder(value)
+    status = "PASS" if has_key else "FAIL"
+    detail = f"{env_name} present" if has_key else f"{env_name} missing or placeholder"
+    hint = None if has_key else f"Add {env_name} to .env or use --mock."
+    return Check(name, status, detail, hint)
 
 
 def _check_keys(settings: Settings) -> list[Check]:
@@ -134,17 +154,32 @@ def _check_keys(settings: Settings) -> list[Check]:
     if settings.offline:
         checks.append(Check("Provider keys", "SKIP", "offline mode"))
     else:
-        needs_gemini = settings.llm_provider == "gemini" or settings.embed_provider == "gemini"
-        if needs_gemini:
-            has_key = bool(settings.gemini_api_key) and not _looks_placeholder(
-                settings.gemini_api_key
+        if settings.llm_provider == "deepseek":
+            checks.append(
+                _key_check("DeepSeek key", settings.deepseek_api_key, "DEEPSEEK_API_KEY")
             )
-            status = "PASS" if has_key else "FAIL"
-            detail = "GEMINI_API_KEY present" if has_key else "GEMINI_API_KEY missing or placeholder"
-            hint = None if has_key else "Add GEMINI_API_KEY to .env or use --mock."
-            checks.append(Check("Gemini key", status, detail, hint))
+        elif settings.llm_provider == "gemini":
+            checks.append(
+                _key_check("Gemini key", settings.gemini_api_key, "GEMINI_API_KEY")
+            )
         else:
-            checks.append(Check("Gemini key", "SKIP", f"providers: {settings.llm_provider}/{settings.embed_provider}"))
+            checks.append(
+                Check("LLM key", "SKIP", f"provider: {settings.llm_provider}")
+            )
+
+        if settings.embed_provider == "gemini":
+            if settings.llm_provider != "gemini":
+                checks.append(
+                    _key_check("Gemini key", settings.gemini_api_key, "GEMINI_API_KEY")
+                )
+        else:
+            checks.append(
+                Check(
+                    "Embedding key",
+                    "SKIP",
+                    f"provider: {settings.embed_provider}",
+                )
+            )
 
         if settings.mock:
             checks.append(Check("OpenAlex key", "SKIP", "mock mode"))
@@ -167,7 +202,8 @@ def _check_keys(settings: Settings) -> list[Check]:
     return checks
 
 
-def _check_gemini_llm(settings: Settings) -> Check:
+def _check_llm(settings: Settings) -> Check:
+    label = f"{_provider_label(settings.llm_provider)} LLM"
     started = time.perf_counter()
     try:
         client = build_llm_client(settings)
@@ -175,8 +211,8 @@ def _check_gemini_llm(settings: Settings) -> Check:
             result = client.generate_json(
                 system="Reply with JSON only.",
                 user='Return {"ok": true}.',
-                schema=GEMINI_PROBE_SCHEMA,
-                max_tokens=32,
+                schema=PROBE_SCHEMA,
+                max_tokens=64,
                 purpose="doctor",
             )
         finally:
@@ -185,25 +221,27 @@ def _check_gemini_llm(settings: Settings) -> Check:
                 close()
     except Exception as exc:  # doctor must report, not crash
         return Check(
-            "Gemini LLM",
+            label,
             "FAIL",
             f"{type(exc).__name__}: {exc}",
             "Check the key, model id, and network; `--mock` bypasses providers.",
         )
     elapsed = time.perf_counter() - started
     if result.get("ok") is not True:
-        return Check("Gemini LLM", "FAIL", f"unexpected response: {result!r}")
+        return Check(label, "FAIL", f"unexpected response: {result!r}")
+    model = settings.llm_model_name
     if elapsed > 15.0:
-        return Check(
-            "Gemini LLM",
-            "WARN",
-            f"{settings.gemini_model} responded in {elapsed:.1f}s",
-            "Latency is high; `gemini-3.6-flash` is the verified fast default.",
+        hint = (
+            "Latency is high; `deepseek-flash` is the verified fast default."
+            if settings.llm_provider == "deepseek"
+            else "Latency is high; `gemini-3.6-flash` is the verified fast default."
         )
-    return Check("Gemini LLM", "PASS", f"{settings.gemini_model} responded in {elapsed:.1f}s")
+        return Check(label, "WARN", f"{model} responded in {elapsed:.1f}s", hint)
+    return Check(label, "PASS", f"{model} responded in {elapsed:.1f}s")
 
 
-def _check_gemini_embeddings(settings: Settings) -> Check:
+def _check_embeddings(settings: Settings) -> Check:
+    label = f"{_provider_label(settings.embed_provider)} embeddings"
     started = time.perf_counter()
     try:
         client = build_embedding_client(settings)
@@ -215,16 +253,16 @@ def _check_gemini_embeddings(settings: Settings) -> Check:
                 close()
     except Exception as exc:
         return Check(
-            "Gemini embeddings",
+            label,
             "FAIL",
             f"{type(exc).__name__}: {exc}",
-            "Check the key and GEMINI_EMBED_MODEL; run `doctor --mock` to bypass providers.",
+            "Check the key and embedding model; run `doctor --mock` to bypass providers.",
         )
     elapsed = time.perf_counter() - started
     if not vectors or len(vectors[0]) != settings.embed_dims:
         actual = len(vectors[0]) if vectors else 0
         return Check(
-            "Gemini embeddings",
+            label,
             "FAIL",
             f"expected {settings.embed_dims} dims, got {actual}",
             "Set EMBED_DIMS to the provider output or reset the field store.",
@@ -232,10 +270,10 @@ def _check_gemini_embeddings(settings: Settings) -> Check:
     norm = sum(value * value for value in vectors[0]) ** 0.5
     if not math.isfinite(norm):
         return Check(
-            "Gemini embeddings",
+            label,
             "FAIL",
             f"vector is not finite (norm={norm})",
-            "Check GEMINI_EMBED_MODEL and the provider response; NaN/inf vectors "
+            "Check the embedding model and provider response; NaN/inf vectors "
             "would corrupt similarity scores.",
         )
     if abs(norm - 1.0) > 1e-3:
@@ -243,16 +281,16 @@ def _check_gemini_embeddings(settings: Settings) -> Check:
         norm = sum(value * value for value in vectors[0]) ** 0.5
     if not math.isfinite(norm):
         return Check(
-            "Gemini embeddings",
+            label,
             "FAIL",
             f"vector is not finite after normalization (norm={norm})",
         )
     if abs(norm - 1.0) > 1e-3:
-        return Check("Gemini embeddings", "FAIL", f"vector is not normalized (norm={norm:.4f})")
+        return Check(label, "FAIL", f"vector is not normalized (norm={norm:.4f})")
     return Check(
-        "Gemini embeddings",
+        label,
         "PASS",
-        f"{settings.gemini_embed_model}@{settings.embed_dims} in {elapsed:.1f}s",
+        f"{settings.embed_model_name}@{settings.embed_dims} in {elapsed:.1f}s",
     )
 
 
@@ -326,15 +364,21 @@ def run_doctor(settings: Settings, *, network: bool = True) -> list[Check]:
     checks.extend(_check_keys(settings))
 
     online = network and not settings.offline
-    if settings.llm_provider == "gemini" and settings.gemini_api_key and online:
-        checks.append(_check_gemini_llm(settings))
+    llm_label = f"{_provider_label(settings.llm_provider)} LLM"
+    if (
+        settings.llm_provider in {"deepseek", "gemini"}
+        and settings.llm_api_key
+        and online
+    ):
+        checks.append(_check_llm(settings))
     else:
-        checks.append(Check("Gemini LLM", "SKIP", "mock/offline or no key"))
+        checks.append(Check(llm_label, "SKIP", "mock/offline or no key"))
 
-    if settings.embed_provider == "gemini" and settings.gemini_api_key and online:
-        checks.append(_check_gemini_embeddings(settings))
+    embed_label = f"{_provider_label(settings.embed_provider)} embeddings"
+    if settings.embed_provider == "gemini" and settings.embed_api_key and online:
+        checks.append(_check_embeddings(settings))
     else:
-        checks.append(Check("Gemini embeddings", "SKIP", "mock/offline or no key"))
+        checks.append(Check(embed_label, "SKIP", "mock/offline or no key"))
 
     if online and not settings.mock:
         checks.append(_check_openalex(settings))

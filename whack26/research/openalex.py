@@ -53,6 +53,43 @@ def _author_names(authorships: Any) -> list[str]:
     return names
 
 
+def _author_ids(authorships: Any) -> list[str]:
+    """Return source-prefixed author IDs; an id can exist without a name."""
+    if not isinstance(authorships, list):
+        return []
+    ids: list[str] = []
+    for authorship in authorships:
+        if not isinstance(authorship, dict):
+            continue
+        author = authorship.get("author")
+        if not isinstance(author, dict):
+            continue
+        author_id = _strip_prefix(author.get("id"), OPENALEX_ID_PREFIX).strip().strip("/")
+        if author_id:
+            prefixed = f"openalex:{author_id}"
+            if prefixed not in ids:
+                ids.append(prefixed)
+    return ids
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _venue_metrics(primary: Any) -> tuple[str | None, str | None]:
+    if not isinstance(primary, dict):
+        return None, None
+    source = primary.get("source")
+    if not isinstance(source, dict):
+        return None, None
+    return (
+        _optional_str(source.get("type")),
+        _optional_str(source.get("host_organization_name")),
+    )
+
+
 class OpenAlexAdapter(BaseHttpAdapter):
     """Search OpenAlex works, falling back to keyless limited mode."""
 
@@ -169,6 +206,18 @@ class OpenAlexAdapter(BaseHttpAdapter):
             if not isinstance(year, int) or isinstance(year, bool):
                 year = None
 
+            cited_by_count = _optional_int(work.get("cited_by_count"))
+            author_ids = _author_ids(work.get("authorships"))
+            venue_type, publisher = _venue_metrics(primary)
+            metrics_source = (
+                "openalex"
+                if cited_by_count is not None
+                or author_ids
+                or venue_type is not None
+                or publisher is not None
+                else None
+            )
+
             records.append(
                 self._record(
                     source_id=source_id,
@@ -183,6 +232,11 @@ class OpenAlexAdapter(BaseHttpAdapter):
                     license=_optional_str(primary.get("license")),
                     query=query,
                     retrieved_at=retrieved_at,
+                    cited_by_count=cited_by_count,
+                    author_ids=author_ids,
+                    venue_type=venue_type,
+                    publisher=publisher,
+                    metrics_source=metrics_source,
                 )
             )
         return records

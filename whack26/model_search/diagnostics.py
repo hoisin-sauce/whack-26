@@ -259,12 +259,22 @@ def heteroskedasticity(
             status="warn" if bp_pvalue < 0.05 else "ok",
             value=bp_pvalue,
             message=f"LM={bp_statistic:.3f}, df={bp_df}",
+            metadata={
+                "statistic": bp_statistic,
+                "model_df": bp_df,
+                "p_value": bp_pvalue,
+            },
         ),
         Diagnostic(
             name="white",
             status="warn" if white_pvalue < 0.05 else "ok",
             value=white_pvalue,
             message=f"LM={white_statistic:.3f}, df={white_df}",
+            metadata={
+                "statistic": white_statistic,
+                "model_df": white_df,
+                "p_value": white_pvalue,
+            },
         ),
     ]
 
@@ -379,6 +389,7 @@ def durbin_watson(residuals: Any) -> Diagnostic:
         status="ok" if 1.5 <= statistic <= 2.5 else "warn",
         value=statistic,
         message="" if 1.5 <= statistic <= 2.5 else "residual autocorrelation",
+        metadata={"statistic": statistic},
     )
 
 
@@ -401,8 +412,18 @@ def autocorrelation(residuals: Any, *, max_lag: int = 10) -> list[Diagnostic]:
     variance = float(np.sum(centered**2))
     if variance <= 0:
         return [
-            Diagnostic(name="autocorrelation_lag1", status="ok", value=0.0),
-            Diagnostic(name="ljung_box", status="ok", value=1.0),
+            Diagnostic(
+                name="autocorrelation_lag1",
+                status="ok",
+                value=0.0,
+                metadata={"statistic": 0.0},
+            ),
+            Diagnostic(
+                name="ljung_box",
+                status="ok",
+                value=1.0,
+                metadata={"statistic": 0.0, "lags": lag, "p_value": 1.0},
+            ),
         ]
 
     lag1 = float(np.sum(centered[:-1] * centered[1:]) / variance)
@@ -419,12 +440,19 @@ def autocorrelation(residuals: Any, *, max_lag: int = 10) -> list[Diagnostic]:
             status="warn" if abs(lag1) > 0.3 else "ok",
             value=lag1,
             message="" if abs(lag1) <= 0.3 else "strong lag-1 autocorrelation",
+            metadata={"statistic": lag1},
         ),
         Diagnostic(
             name="ljung_box",
             status="warn" if pvalue < 0.05 else "ok",
             value=pvalue,
             message=f"Q={q_statistic:.3f}, lag={lag}",
+            metadata={
+                "statistic": q_statistic,
+                "lags": lag,
+                "p_value": pvalue,
+                "model_df": 0,
+            },
         ),
     ]
 
@@ -497,6 +525,7 @@ def stationarity(series: Any) -> list[Diagnostic]:
             value=pvalue,
             message=f"statistic={statistic:.3f}"
             + ("" if pvalue <= 0.05 else "; cannot reject a unit root"),
+            metadata={"statistic": statistic, "p_value": pvalue},
         )
     ]
 

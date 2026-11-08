@@ -134,7 +134,9 @@ and classification settings); source path and warning text are excluded. A live
 warm pass therefore makes no provider calls. The shuffled pass still classifies
 against a fresh store and therefore spends calls.
 
-A full live ten-dataset run has not been recorded yet. On 2026-11-07 the
+A full live ten-dataset run has not been recorded yet. The default LLM is now
+DeepSeek (`WHACK26_LLM_PROVIDER=deepseek`), so the Gemini quota note below
+applies only when Gemini is selected. On 2026-11-07 the
 configured Gemini key reported a free-tier daily limit for `gemini-3.6-flash`
 (`generate_content_free_tier_requests`). The exact per-model limit is
 account-specific and should be checked in AI Studio. A cold classification needs

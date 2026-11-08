@@ -23,7 +23,7 @@ SEMANTIC_SCHOLAR_API_URL = (
 )
 SEMANTIC_SCHOLAR_FIELDS = (
     "paperId,title,abstract,year,authors,externalIds,url,openAccessPdf,"
-    "publicationDate,venue,fieldsOfStudy"
+    "publicationDate,venue,fieldsOfStudy,citationCount,publicationTypes"
 )
 SEMANTIC_SCHOLAR_API_KEY_HEADER = "x-api-key"
 # Semantic Scholar asks callers to stay around one request per second. The
@@ -98,6 +98,46 @@ def _author_names(authors: Any) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
+def _author_ids(authors: Any) -> list[str]:
+    """Return source-prefixed author IDs in the same order as the names."""
+    if not isinstance(authors, list):
+        return []
+    ids: list[str] = []
+    for author in authors:
+        if not isinstance(author, dict):
+            continue
+        name = _optional_str(author.get("name"))
+        if not name:
+            continue
+        author_id = _optional_str(author.get("authorId"))
+        if author_id:
+            prefixed = f"semantic_scholar:{author_id}"
+            if prefixed not in ids:
+                ids.append(prefixed)
+    return ids
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _venue_type(publication_types: Any) -> str | None:
+    if not isinstance(publication_types, list):
+        return None
+    normalized = {
+        str(item).strip().lower()
+        for item in publication_types
+        if isinstance(item, str) and item.strip()
+    }
+    if any("journalarticle" in item for item in normalized):
+        return "journal"
+    if any("conference" in item for item in normalized):
+        return "conference"
+    return None
 
 
 class SemanticScholarAdapter(BaseHttpAdapter):
@@ -252,6 +292,14 @@ class SemanticScholarAdapter(BaseHttpAdapter):
             year = _year_from(paper.get("year"))
             if year is None:
                 year = _year_from(paper.get("publicationDate"))
+            cited_by_count = _optional_int(paper.get("citationCount"))
+            author_ids = _author_ids(paper.get("authors"))
+            venue_type = _venue_type(paper.get("publicationTypes"))
+            metrics_source = (
+                "semantic_scholar"
+                if cited_by_count is not None or author_ids or venue_type is not None
+                else None
+            )
             try:
                 record = self._record(
                     source_id=paper_id,
@@ -266,6 +314,10 @@ class SemanticScholarAdapter(BaseHttpAdapter):
                     year=year,
                     doi=doi,
                     license=None,
+                    cited_by_count=cited_by_count,
+                    author_ids=author_ids,
+                    venue_type=venue_type,
+                    metrics_source=metrics_source,
                 )
             except ValueError:
                 continue

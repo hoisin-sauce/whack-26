@@ -1,6 +1,11 @@
-# Research-to-Hypothesis Slice
+# Referee glossary
 
-A local-first pipeline that turns a pandas-readable dataset into a dynamically classified field path, cited research factors, three runnable hypotheses, and a method-critic verdict.
+**Referee**:
+The project in this repository: a local-first autonomous research analyst that
+turns a pandas-readable dataset into a dynamically classified field path, cited
+research factors, runnable models, independent validation, and an audit trail.
+The Python package and CLI keep the historical `whack26` name.
+_Avoid_: Whack26 (for the product), pipeline (unqualified)
 
 ## Language
 
@@ -19,8 +24,12 @@ The depth of a field in the tree. Roots are level 1 and the maximum is 4; level 
 _Avoid_: Tier, rank
 
 **Dataset summary**:
-The compact text representation of a dataset — schema, dtypes, missingness, cardinality, sample statistics, and a few sample rows — plus the optional user description. It is the classification and embedding input, not the raw dataset.
+The compact text representation of a dataset — schema, dtypes, missingness, cardinality, sample statistics, and a few sample rows — plus the optional user description and source site. It is the classification and embedding input, not the raw dataset.
 _Avoid_: Profile, metadata
+
+**Source site**:
+The optional URL or site name the user supplies to record where a dataset came from. It is provenance metadata for the summary and artifact, not a research source.
+_Avoid_: Source, origin
 
 **Dataset profile**:
 The structured object holding the summary inputs and the detected column roles: target, time, id, leakage risk, feature.
@@ -72,8 +81,12 @@ A `kind="search"` document recording one query executed against one source, with
 _Avoid_: Query log, search record
 
 **Catalog query**:
-A typed filter over stored documents by kind, source, field subtree, year, credibility, preloaded state, text, or similarity, with deterministic ordering and pagination.
+A typed filter over stored documents by kind, source, field subtree, year, credibility, preloaded state, text, or similarity, with deterministic ordering and pagination. Catalog queries are library-only today; `run` records Search documents but does not expose a catalog CLI command.
 _Avoid_: SQL query, search API
+
+**Research metrics**:
+The optional, key-gated OpenAlex enrichment that resolves document citation counts and author h-index/citation totals after ranking. It is cached, offline-safe, and advisory; failures become warnings.
+_Avoid_: Bibliometrics, scoring
 
 **Semantic scraping**:
 Target-gated expansion from seed research records through API references and links. A high-similarity parent contributes all its links; a lower-similarity parent contributes only links whose own summaries pass a tighter threshold. Budgets and robots rules bound the crawl.
@@ -95,6 +108,10 @@ _Avoid_: Diff, match
 The layer-1 documents fetched from the 13 statistics/validity seed queries and classified under `Statistics and Validity`. They augment the static pitfalls corpus for method critique and hypothesis context.
 _Avoid_: Training set, taxonomy
 
+**Field pitfall**:
+A cited, field-scoped caveat retrieved for one node of a dataset's field path. It records the scope (`leaf` or `ancestor`), the category, whether it applies to the dataset (`yes`, `unknown`, or `no`), and a stable `F:<field_id>:<n>` citation. A field pitfall is a candidate caveat, not a finding; `unknown` is background context only.
+_Avoid_: Finding, risk, generic caveat
+
 **Factor**:
 A candidate determinant or correlate extracted from research records, with a description, direction, claim type, and evidence IDs. A factor may or may not map to a dataset column.
 _Avoid_: Feature, variable
@@ -108,6 +125,14 @@ _Avoid_: Column match
 **Hypothesis**:
 A runnable Python function plus metadata that proposes a relationship or model for the dataset. It has an applicability predicate, required columns, assumptions, a method family, cited factors, and a derivation rationale.
 _Avoid_: Model, idea
+
+**Agent loop**:
+The optional bounded propose → execute → diagnose → refine/replace/discard cycle that replaces the one-shot hypothesis generator when `WHACK26_AGENT_LOOP_ENABLED=1`. It records every attempt and never exceeds its attempt or time budget.
+_Avoid_: Retry loop, auto-repair
+
+**Context pack**:
+The bounded, deterministically ordered bundle of field-path/ancestor context, research, factors, model-search candidates, statistics, corpus excerpts, and applicable field pitfalls supplied to generation.
+_Avoid_: Prompt, memory
 
 **Applicability predicate**:
 The `applies(df) -> bool` function that decides whether a hypothesis can run on a given dataset.
@@ -140,6 +165,10 @@ _Avoid_: Statistical validation, critic
 The agentic reviewer that checks the derivation method and claim type against the preloaded pitfalls corpus. It does not judge statistical validity or model performance; the independent validator owns that.
 _Avoid_: Validator, judge
 
+**Final model judge**:
+The advisory run-level audit over the selected model, its statistical validation, and the method-critic results. It reports a decision, code-verified flags, and re-audit steps, and writes a UI-ready HTML fragment. It never re-ranks candidates or blocks artifact emission.
+_Avoid_: Method critic, validator, statistical validation
+
 **Statistical validation**:
 The independent post-generation pass that runs the four-layer engine over a fitted model: Deflated Sharpe Ratio, Monte Carlo permutation, chronological out-of-sample decay, and parameter sensitivity. It reports `passed`, `failed`, `partial`, `skipped`, or `error` and never blocks artifact emission.
 _Avoid_: Critic verdict, performance score
@@ -156,9 +185,17 @@ _Avoid_: Calibration score
 The ratio of observed variance to the mean for a count target (Pearson dispersion). Values above 1 indicate overdispersion; count validation reports it and can gate a run with `max_dispersion`.
 _Avoid_: Variance
 
+**Run**:
+One execution of the pipeline into a run directory. It owns the dataset copy, generated code and predictions, logs, sidecar files, and `artifact.json`.
+_Avoid_: Job, experiment
+
 **Artifact**:
-The versioned JSON handoff plus Markdown preview, containing the dataset profile, field path, research records, factors, hypotheses, execution results, critic verdict, and the optional validation, model-search, variant, research-model, collection, and hierarchy sections.
+The versioned JSON handoff, containing the dataset profile, field path, research records, factors, hypotheses, execution results, critic verdict, and the optional validation, model-search, variant, research-model, collection, field-pitfall, final-judge, and scraping sections.
 _Avoid_: Report, output file
+
+**Preview**:
+The Markdown rendering generated only from `artifact.json`, used by the report owner and for a quick human-readable audit.
+_Avoid_: Report
 
 ### Evaluation
 

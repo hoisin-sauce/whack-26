@@ -7,8 +7,10 @@ import numpy as np
 import pandas as pd
 
 from whack26.hypotheses.variants import (
+    aggregate_variant_reports,
     anonymize_frame,
     build_variants,
+    evaluate_hypothesis_variants,
     evaluate_variants,
     jumble_target,
     redact_text,
@@ -50,6 +52,64 @@ def pii_frame(rows: int = 40) -> pd.DataFrame:
             ],
         }
     )
+
+
+def test_evaluate_hypothesis_variants_detects_target_copying(
+    tmp_path: Path,
+) -> None:
+    frame = pd.DataFrame(
+        {
+            "x": np.arange(30, dtype="float64"),
+            "y": np.arange(30, dtype="float64") * 2.0,
+        }
+    )
+    profile, frame = make_profile(tmp_path, frame)
+    variants, frames = build_variants(profile, frame, seed=7)
+    module = tmp_path / "leaky.py"
+    module.write_text(
+        """
+import pandas as pd
+
+PARAMETERS = {"ridge": 0.0}
+
+
+def applies(df: pd.DataFrame) -> bool:
+    return "y" in df.columns
+
+
+def _fit(df, seed=0, params=None):
+    return {}
+
+
+def _predict(model, df):
+    return df["y"]
+
+
+def run(df: pd.DataFrame, seed: int = 0) -> dict:
+    return {"predictions": _predict({}, df), "target": "y"}
+""",
+        encoding="utf-8",
+    )
+
+    report = evaluate_hypothesis_variants(
+        hypothesis_id="hyp_leaky",
+        module_path=module,
+        frames=frames,
+        variants=variants,
+        target_column="y",
+        target_kind="continuous",
+        run_dir=tmp_path / "run",
+    )
+
+    assert report.hypothesis_id == "hyp_leaky"
+    assert report.jumbled_label_leak is True
+    assert report.verdict == "reject"
+    assert any("jumbled_label_leak" in reason for reason in report.reasons)
+
+    aggregate = aggregate_variant_reports(variants, [report])
+    assert aggregate.jumbled_label_leak is True
+    assert aggregate.verdict == "reject"
+    assert any("hyp_leaky" in warning for warning in aggregate.warnings)
 
 
 def test_build_variants_is_deterministic(tmp_path: Path) -> None:

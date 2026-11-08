@@ -1,6 +1,8 @@
 # Demo dataset and runbook
 
-Status: decided in [ticket #12](https://github.com/hoisin-sauce/whack-26/issues/12). Applies to the 6–8 hour slice.
+Status: implemented in [ticket #12](https://github.com/hoisin-sauce/whack-26/issues/12).
+This is the current demo path for Referee; the `whack26` package/CLI name is
+retained.
 
 ## Demo dataset
 
@@ -30,11 +32,11 @@ py -3.12 -m venv .venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 Copy-Item .env.example .env
-# Fill GEMINI_API_KEY and OPENALEX_API_KEY in .env
+# Fill DEEPSEEK_API_KEY, GEMINI_API_KEY, and OPENALEX_API_KEY in .env
 python -m whack26 doctor
 ```
 
-`.env` is gitignored. Never commit it. Required keys: `GEMINI_API_KEY`, `OPENALEX_API_KEY`. Optional: `HF_TOKEN`, `ZENODO_TOKEN`, Cloudflare/Groq/Jina. No general web search key is required; Wikipedia REST is the only web source.
+`.env` is gitignored. Never commit it. Required keys: `DEEPSEEK_API_KEY` (LLM), `GEMINI_API_KEY` (embeddings), `OPENALEX_API_KEY`. Optional: `HF_TOKEN`, `ZENODO_TOKEN`, Cloudflare/Groq/Jina. No general web search key is required; Wikipedia REST is the only web source.
 
 ## Commands
 
@@ -58,18 +60,29 @@ python -m whack26 run --input data/california_housing.csv --target median_house_
 # Development without keys
 python -m whack26 run --input data/california_housing.csv --target median_house_value --out runs/demo-mock --mock
 
-# Opt-in agentic stages (model search, variants, generation validation)
+# Opt-in stages (model search, variants, generation validation, pitfalls)
 python -m whack26 run `
   --input data/california_housing.csv `
   --target median_house_value `
   --model-search `
   --variants `
+  --field-pitfalls `
   --validate-generation `
   --collection-json collection.json `
   --collection-field design=observational `
   --out runs/demo-agentic
 
-# Statistical validation (four-layer engine)
+# Complete optional path (does not include --judge)
+python -m whack26 run `
+  --input data/california_housing.csv `
+  --target median_house_value `
+  --out runs/demo-full `
+  --full
+
+# Advisory final judge on an existing run
+python -m whack26 judge runs/demo
+
+# Statistical validation (four-layer engine + general targets)
 python -m whack26 validate-models runs/demo
 python -m whack26 validate-models runs/demo --generation
 
@@ -77,12 +90,14 @@ python -m whack26 validate-models runs/demo --generation
 python -m whack26 validate-artifact runs/demo/artifact.json
 ```
 
-The opt-in flags write `model_search.json`, `variants.json`, and
-`generation_validation.json` into the run directory and add the corresponding
-optional sections to `artifact.json` and `preview.md`. All four settings default
-to off, so a plain `run` behaves exactly as before.
+The opt-in flags write `model_search.json`, `variants.json`,
+`field_pitfalls.json`, and `generation_validation.json` into the run directory
+and add the corresponding optional sections to `artifact.json` and
+`preview.md`. `--judge` additionally writes `final_judge.json/.md/.html` and the
+UI fragment. All opt-in settings default to off, so a plain `run` behaves
+exactly as the default pipeline.
 
-`doctor` checks Python, packages, the corpus file, `.env` keys, Gemini model responsiveness, and OpenAlex authentication. It prints a single status table and exits non-zero on a blocking problem.
+`doctor` checks Python, packages, the corpus file, `.env` keys, LLM model responsiveness, embedding dimensions, and OpenAlex authentication. It prints a single status table and exits non-zero on a blocking problem.
 
 ## Acceptance checks
 
@@ -93,6 +108,8 @@ to off, so a plain `run` behaves exactly as before.
 | Hypotheses | Exactly 3, one per family; all `applies` true; all run ≤ 60 s |
 | Predictions | One value per row (or `row_index` alignment); saved CSV exists |
 | Critic | 3 valid critic results; no performance judgments; verdicts in `pass/refine/reject/insufficient` |
+| Field pitfalls | `--field-pitfalls` writes cited `F:<field_id>:<n>` records; `unknown` stays background context |
+| Final judge | `--judge` writes all four report files; the artifact accepts the optional `final_judge` section |
 | Artifact | `validate-artifact` passes; `preview.md` renders; no secrets/absolute portable paths |
 | Runtime | Cold run ≤ 20 min including research; warm ≤ 5 min; classification-only ≤ 10 min |
 | Offline | Completes from cache with a clear degraded-mode label |
@@ -113,8 +130,8 @@ python -m whack26 run `
 
 | Failure | Fallback |
 |---|---|
-| `gemini-3.8-flash` times out | Default to `gemini-3.6-flash` (verified responsive; `gemini-3.5-flash` is an alias) via `GEMINI_MODEL` |
-| Gemini unavailable / free-tier privacy concern | Cloudflare Workers AI (`WHACK26_LLM_PROVIDER=cloudflare`) or local `model2vec` embeddings |
+| DeepSeek unavailable | Set `WHACK26_LLM_PROVIDER=gemini`; `gemini-3.6-flash` is the verified fallback (3.8 times out) |
+| Gemini embeddings unavailable | Set `WHACK26_EMBED_PROVIDER=mock` for plumbing only, or use local `model2vec` once installed |
 | No keys at all | `--mock` deterministic fixtures; all pipeline stages still run |
 | OpenAlex 429/403 | Keyless limited mode, exponential backoff, then cache |
 | arXiv slow/timeout | Skip after 2 failures; continue with OpenAlex |
@@ -151,5 +168,11 @@ python -m whack26 run `
 ## Deliverables at the end of the slice
 
 - `runs/demo/artifact.json`, `preview.md`, three hypothesis modules, three prediction CSVs.
-- `docs/eval/field-classification-results.md` with the 10-dataset gate.
-- A short README section showing the command and the acceptance table above.
+- Optional sidecars (`validation.json`, `model_search.json`, `variants.json`,
+  `generation_validation.json`, `field_pitfalls.json`, `scrape.json`) and, with
+  `--judge`, the four final-judge report files.
+- The ten-dataset field-classification gate report
+  (`docs/eval/field-classification-results.md`) once provider quota and human
+  scores are available; the mock plumbing gate and the two-dataset live smoke
+  are recorded in `docs/eval/`.
+- A README section showing the command and the acceptance table above.

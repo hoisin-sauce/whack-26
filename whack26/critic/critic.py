@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from typing import Any, Sequence
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -13,7 +14,7 @@ from ..llm import LLMError
 from ..profile import DatasetProfile
 from ..screen import ScreenSummary, format_screen
 from .checks import run_deterministic_checks
-from .corpus import Corpus, CorpusError, load_corpus
+from .corpus import Corpus, CorpusChunk, CorpusError, load_corpus
 from .models import Check, ClaimType, CriticResult, Issue, Severity, Verdict
 
 CRITIC_SYSTEM_PROMPT = (
@@ -103,6 +104,13 @@ _BANNED_PERFORMANCE_RE = re.compile(
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
+_FIELD_PITFALL_CAUTION = (
+    "Field-scoped pitfalls are supplementary. `applies_to_dataset=yes` means "
+    "the dataset profile shows the precondition; `unknown` is background only. "
+    "Do not raise an issue from a field pitfall unless it applies to this "
+    "dataset or the code/metadata clearly demonstrates the defect."
+)
+
 
 class LLMIssue(BaseModel):
     chunk: str
@@ -162,9 +170,7 @@ def _corpus_missing_result(
 
 
 def _model_name(settings: Settings) -> str:
-    if settings.llm_provider == "gemini":
-        return settings.gemini_model
-    return settings.llm_provider
+    return settings.llm_model_name
 
 
 def _field_path_text(field_path: Sequence[Any]) -> str:
@@ -197,6 +203,81 @@ def _research_text(records: Sequence[Any], limit: int = 12) -> str:
             f"{getattr(record, 'title', '')}"
         )
     return "\n".join(lines) or "(none)"
+
+
+def _value(item: Any, key: str, default: Any = None) -> Any:
+    """Read a field from a Pydantic model, SimpleNamespace, or mapping."""
+    if isinstance(item, Mapping):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _field_pitfall_chunks(
+    field_pitfalls: Sequence[Any], *, limit: int = 6
+) -> list[CorpusChunk]:
+    """Convert applicable field pitfalls into capped, prompt-ready chunks."""
+    applicable: list[Any] = []
+    for pitfall in field_pitfalls:
+        applies = _value(pitfall, "applies_to_dataset", "unknown")
+        if str(applies or "unknown").strip().lower() == "no":
+            continue
+        applicable.append(pitfall)
+    applicable.sort(
+        key=lambda item: (
+            0 if str(_value(item, "scope", "ancestor")) == "leaf" else 1,
+            -_as_int(_value(item, "field_level", 1), 1),
+            -_as_float(_value(item, "confidence", 0.0)),
+            str(_value(item, "id", "") or ""),
+        )
+    )
+    chunks: list[CorpusChunk] = []
+    for pitfall in applicable:
+        chunk_id = str(_value(pitfall, "id", "") or "").strip()
+        if not chunk_id:
+            continue
+        field_name = str(_value(pitfall, "field_name", "") or "")
+        scope = str(_value(pitfall, "scope", "ancestor") or "ancestor")
+        text = "\n".join(
+            [
+                f"Field: {field_name}",
+                f"Field level: {_as_int(_value(pitfall, 'field_level', 1), 1)}",
+                f"Scope: {scope}",
+                f"Category: {_value(pitfall, 'category', 'other')}",
+                "Applies to dataset: "
+                f"{_value(pitfall, 'applies_to_dataset', 'unknown')}",
+                "Applicability reason: "
+                f"{_value(pitfall, 'applicability_reason', '')}",
+                f"Pitfall: {_value(pitfall, 'pitfall', '')}",
+                f"Check: {_value(pitfall, 'check', '')}",
+                f"Evidence ID: {_value(pitfall, 'evidence_id', '')}",
+                f"Source: {_value(pitfall, 'source', '')}",
+                f"URL: {_value(pitfall, 'url', '')}",
+            ]
+        )
+        chunks.append(
+            CorpusChunk(
+                id=chunk_id,
+                title=f"{field_name} ({scope} field)",
+                text=text,
+            )
+        )
+        if len(chunks) >= limit:
+            break
+    return chunks
 
 
 def _hypothesis_text(hypothesis: Any) -> str:
@@ -234,6 +315,7 @@ def _user_prompt(
     screen: ScreenSummary,
     research: Sequence[Any],
     chunks: Sequence[Any],
+    field_pitfalls_supplied: bool = False,
     feedback: str | None = None,
 ) -> str:
     draft = getattr(hypothesis, "draft", hypothesis)
@@ -254,6 +336,11 @@ def _user_prompt(
         + format_screen(screen, max_chars=2500)
         + "\n\nRetrieved corpus chunks:\n"
         + _chunks_text(chunks)
+        + (
+            "\n\n" + _FIELD_PITFALL_CAUTION
+            if field_pitfalls_supplied
+            else ""
+        )
         + "\n\nReview the derivation, not the performance. Classify the claim and "
         "return issues that cite a chunk id. Use `insufficient` when the supplied "
         "trace lacks the information needed for a check."
@@ -320,6 +407,7 @@ def run_critic(
     embeddings: Any,
     settings: Settings,
     corpus: Corpus | None = None,
+    field_pitfalls: Sequence[Any] = (),
 ) -> CriticResult:
     """Run deterministic checks and one corpus-grounded LLM review."""
     hypothesis_id = str(getattr(hypothesis, "id", "hyp_unknown"))
@@ -351,8 +439,12 @@ def run_critic(
         ]
     )
     chunks, retrieval_warnings = corpus.retrieve(query, embeddings)
+    field_chunks = _field_pitfall_chunks(field_pitfalls)
+    if field_chunks:
+        chunks = list(chunks) + field_chunks
     retrieved_ids = [chunk.id for chunk in chunks]
     valid_chunk_ids = {chunk.id for chunk in corpus.chunks}
+    valid_chunk_ids.update(chunk.id for chunk in field_chunks)
 
     payload: dict[str, Any] | None = None
     validation_error: str | None = None
@@ -370,6 +462,7 @@ def run_critic(
                     screen=screen,
                     research=research,
                     chunks=chunks,
+                    field_pitfalls_supplied=bool(field_chunks),
                     feedback=validation_error if attempt == 2 else None,
                 ),
                 schema=CRITIC_SCHEMA,

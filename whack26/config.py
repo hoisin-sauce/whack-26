@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
-LLM_PROVIDERS = ("gemini", "cloudflare", "mock")
+LLM_PROVIDERS = ("deepseek", "gemini", "cloudflare", "mock")
 EMBED_PROVIDERS = ("gemini", "local", "mock")
 
 
@@ -114,16 +114,26 @@ class Settings:
 
     base_dir: Path = REPO_ROOT
 
-    llm_provider: str = "gemini"
+    llm_provider: str = "deepseek"
     embed_provider: str = "gemini"
+    deepseek_api_key: str | None = None
+    deepseek_model: str = "deepseek-flash"
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.6-flash"
     gemini_embed_model: str = "gemini-embedding-2"
     embed_dims: int = 768
 
     openalex_api_key: str | None = None
+    research_metrics_enabled: bool = False
     hf_token: str | None = None
     zenodo_token: str | None = None
+
+    field_pitfalls_enabled: bool = False
+    field_pitfalls_max_queries_per_field: int = 1
+    field_pitfalls_records_per_query: int = 5
+    field_pitfalls_max_per_field: int = 3
+    field_pitfalls_max_total: int = 12
+    field_pitfalls_sources: tuple[str, ...] = ("openalex", "arxiv")
 
     offline: bool = False
     log_level: str = "INFO"
@@ -178,6 +188,14 @@ class Settings:
     statistical_backend: str = "auto"
     external_validator: str | None = None
 
+    final_judge_enabled: bool = False
+    final_judge_model: str | None = None
+    final_judge_da_model: str | None = None
+    final_judge_max_workers: int = 3
+    final_judge_max_tokens: int = 2000
+    final_judge_min_evaluated_fraction: float = 0.5
+
+    hierarchy_placement_enabled: bool = True
     hierarchy_tau_1: float = 0.55
     hierarchy_tau_2: float = 0.60
     hierarchy_tau_3: float = 0.65
@@ -273,6 +291,38 @@ class Settings:
                 "statistical_backend must be auto, in_slice, stats_engine, "
                 "external, or none"
             )
+        if not 1 <= self.field_pitfalls_max_queries_per_field <= 3:
+            raise ValueError(
+                "field_pitfalls_max_queries_per_field must be between 1 and 3"
+            )
+        if self.field_pitfalls_records_per_query <= 0:
+            raise ValueError("field_pitfalls_records_per_query must be positive")
+        if self.field_pitfalls_max_per_field <= 0:
+            raise ValueError("field_pitfalls_max_per_field must be positive")
+        if self.field_pitfalls_max_total <= 0:
+            raise ValueError("field_pitfalls_max_total must be positive")
+        if not self.field_pitfalls_sources:
+            raise ValueError("field_pitfalls_sources must not be empty")
+        if not all(
+            isinstance(source, str) and source
+            for source in self.field_pitfalls_sources
+        ):
+            raise ValueError("field_pitfalls_sources must contain non-empty strings")
+        allowed_pitfall_sources = {"openalex", "arxiv", "semantic_scholar", "websearch"}
+        invalid_sources = set(self.field_pitfalls_sources) - allowed_pitfall_sources
+        if invalid_sources:
+            raise ValueError(
+                "field_pitfalls_sources contains unsupported source(s): "
+                + ", ".join(sorted(invalid_sources))
+            )
+        if self.final_judge_max_workers <= 0:
+            raise ValueError("final_judge_max_workers must be positive")
+        if self.final_judge_max_tokens <= 0:
+            raise ValueError("final_judge_max_tokens must be positive")
+        if not 0.0 <= self.final_judge_min_evaluated_fraction <= 1.0:
+            raise ValueError(
+                "final_judge_min_evaluated_fraction must be between 0 and 1"
+            )
         for name in (
             "hierarchy_tau_1",
             "hierarchy_tau_2",
@@ -317,7 +367,7 @@ class Settings:
             env = os.environ
 
         base_dir = Path(_get(env, "WHACK26_BASE_DIR", str(REPO_ROOT)) or REPO_ROOT).resolve()
-        llm_provider = _choice(env, "WHACK26_LLM_PROVIDER", "gemini", LLM_PROVIDERS)
+        llm_provider = _choice(env, "WHACK26_LLM_PROVIDER", "deepseek", LLM_PROVIDERS)
         embed_provider = _choice(env, "WHACK26_EMBED_PROVIDER", "gemini", EMBED_PROVIDERS)
         if mock:
             llm_provider = "mock"
@@ -327,14 +377,40 @@ class Settings:
             base_dir=base_dir,
             llm_provider=llm_provider,
             embed_provider=embed_provider,
+            deepseek_api_key=_get(env, "DEEPSEEK_API_KEY"),
+            deepseek_model=_get(env, "DEEPSEEK_MODEL", "deepseek-flash")
+            or "deepseek-flash",
             gemini_api_key=_get(env, "GEMINI_API_KEY"),
             gemini_model=_get(env, "GEMINI_MODEL", "gemini-3.6-flash") or "gemini-3.6-flash",
             gemini_embed_model=_get(env, "GEMINI_EMBED_MODEL", "gemini-embedding-2")
             or "gemini-embedding-2",
             embed_dims=_int(env, "EMBED_DIMS", 768),
             openalex_api_key=_get(env, "OPENALEX_API_KEY"),
+            research_metrics_enabled=_bool(
+                env, "WHACK26_RESEARCH_METRICS_ENABLED", False
+            ),
             hf_token=_get(env, "HF_TOKEN"),
             zenodo_token=_get(env, "ZENODO_TOKEN"),
+            field_pitfalls_enabled=_bool(
+                env, "WHACK26_FIELD_PITFALLS_ENABLED", False
+            ),
+            field_pitfalls_max_queries_per_field=_int(
+                env, "WHACK26_FIELD_PITFALLS_MAX_QUERIES_PER_FIELD", 1
+            ),
+            field_pitfalls_records_per_query=_int(
+                env, "WHACK26_FIELD_PITFALLS_RECORDS_PER_QUERY", 5
+            ),
+            field_pitfalls_max_per_field=_int(
+                env, "WHACK26_FIELD_PITFALLS_MAX_PER_FIELD", 3
+            ),
+            field_pitfalls_max_total=_int(
+                env, "WHACK26_FIELD_PITFALLS_MAX_TOTAL", 12
+            ),
+            field_pitfalls_sources=_csv(
+                env,
+                "WHACK26_FIELD_PITFALLS_SOURCES",
+                ("openalex", "arxiv"),
+            ),
             offline=_bool(env, "WHACK26_OFFLINE", False) if offline is None else offline,
             log_level=(_get(env, "WHACK26_LOG_LEVEL", "INFO") or "INFO").upper(),
             http_timeout=_float(env, "WHACK26_HTTP_TIMEOUT", 20.0),
@@ -440,6 +516,21 @@ class Settings:
             statistical_backend=_get(env, "WHACK26_STATISTICAL_BACKEND", "auto")
             or "auto",
             external_validator=_get(env, "WHACK26_EXTERNAL_VALIDATOR"),
+            final_judge_enabled=_bool(env, "WHACK26_FINAL_JUDGE_ENABLED", False),
+            final_judge_model=_get(env, "WHACK26_FINAL_JUDGE_MODEL"),
+            final_judge_da_model=_get(env, "WHACK26_FINAL_JUDGE_DA_MODEL"),
+            final_judge_max_workers=_int(
+                env, "WHACK26_FINAL_JUDGE_MAX_WORKERS", 3
+            ),
+            final_judge_max_tokens=_int(
+                env, "WHACK26_FINAL_JUDGE_MAX_TOKENS", 2000
+            ),
+            final_judge_min_evaluated_fraction=_float(
+                env, "WHACK26_FINAL_JUDGE_MIN_EVALUATED_FRACTION", 0.5
+            ),
+            hierarchy_placement_enabled=_bool(
+                env, "WHACK26_HIERARCHY_PLACEMENT_ENABLED", True
+            ),
             hierarchy_tau_1=_float(env, "WHACK26_HIERARCHY_TAU_1", 0.55),
             hierarchy_tau_2=_float(env, "WHACK26_HIERARCHY_TAU_2", 0.60),
             hierarchy_tau_3=_float(env, "WHACK26_HIERARCHY_TAU_3", 0.65),
@@ -456,6 +547,36 @@ class Settings:
     @property
     def mock(self) -> bool:
         return self.llm_provider == "mock" and self.embed_provider == "mock"
+
+    @property
+    def llm_model_name(self) -> str:
+        """Return the configured model id for the selected LLM provider."""
+        if self.llm_provider == "deepseek":
+            return self.deepseek_model
+        if self.llm_provider == "gemini":
+            return self.gemini_model
+        return self.llm_provider
+
+    @property
+    def embed_model_name(self) -> str:
+        """Return the configured model id for the selected embedding provider."""
+        if self.embed_provider == "gemini":
+            return self.gemini_embed_model
+        return self.embed_provider
+
+    @property
+    def llm_api_key(self) -> str | None:
+        if self.llm_provider == "deepseek":
+            return self.deepseek_api_key
+        if self.llm_provider == "gemini":
+            return self.gemini_api_key
+        return None
+
+    @property
+    def embed_api_key(self) -> str | None:
+        if self.embed_provider == "gemini":
+            return self.gemini_api_key
+        return None
 
     @property
     def fields_db(self) -> Path:

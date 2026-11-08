@@ -18,7 +18,8 @@ import hashlib
 import math
 import re
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from pathlib import Path
+from typing import Literal, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -33,8 +34,10 @@ __all__ = [
     "VariantReport",
     "VariantScore",
     "VariantSet",
+    "aggregate_variant_reports",
     "anonymize_frame",
     "build_variants",
+    "evaluate_hypothesis_variants",
     "evaluate_variants",
     "jumble_target",
     "redact_text",
@@ -133,6 +136,7 @@ class VariantReport(BaseModel):
     """Variant metadata plus the leak/PII gates for one generated model."""
 
     variants: VariantSet
+    hypothesis_id: str | None = None
     seed: int = 0
     target_column: str | None = None
     metric: str | None = None
@@ -143,6 +147,7 @@ class VariantReport(BaseModel):
     verdict: Literal["pass", "reject", "insufficient"] = "insufficient"
     reasons: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
     def to_artifact(self) -> dict:
         return self.model_dump(mode="json")
@@ -817,3 +822,284 @@ def evaluate_variants(
 def write_variant_report(report: VariantReport, path) -> None:
     """Write ``variants.json`` deterministically."""
     report.write(path)
+
+
+# ---------------------------------------------------------------------------
+# Running one generated hypothesis against the three variants
+# ---------------------------------------------------------------------------
+
+
+def _metric_for_target(target_kind: str | None) -> tuple[str, bool]:
+    kind = (target_kind or "continuous").strip().lower()
+    if kind in {"binary", "multiclass"}:
+        return "accuracy", True
+    if kind == "count":
+        return "poisson_deviance", False
+    return "r2", True
+
+
+def _score_predictions(
+    frame: pd.DataFrame,
+    predictions_path: Path,
+    target: str | None,
+    metric: str,
+) -> float | None:
+    """Align a saved predictions CSV with a variant frame and score it."""
+    if target is None or target not in frame.columns:
+        return None
+    if not predictions_path.is_file():
+        return None
+    try:
+        predictions = pd.read_csv(predictions_path)
+    except Exception:  # noqa: BLE001 - a broken predictions file is a missing score
+        return None
+    if not {"row_index", "prediction"}.issubset(predictions.columns):
+        return None
+
+    try:
+        aligned = predictions.set_index("row_index")["prediction"]
+        actual = frame[target].reindex(aligned.index)
+    except Exception:  # noqa: BLE001 - misaligned rows are a missing score
+        return None
+    paired = pd.DataFrame({"actual": actual, "prediction": aligned}).dropna()
+    if paired.empty:
+        return None
+
+    y_true = paired["actual"]
+    y_pred = paired["prediction"]
+    if metric == "accuracy":
+        if pd.api.types.is_numeric_dtype(y_true) and pd.api.types.is_numeric_dtype(
+            y_pred
+        ):
+            unique = set(pd.unique(y_true).tolist())
+            if unique.issubset({0, 1, 0.0, 1.0}):
+                y_pred = (pd.to_numeric(y_pred, errors="coerce") >= 0.5).astype(
+                    float
+                )
+        return float((y_true.astype(str) == y_pred.astype(str)).mean())
+
+    true_values = pd.to_numeric(y_true, errors="coerce").to_numpy(dtype=float)
+    predicted_values = pd.to_numeric(y_pred, errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(true_values) & np.isfinite(predicted_values)
+    true_values = true_values[finite]
+    predicted_values = predicted_values[finite]
+    if true_values.size == 0:
+        return None
+
+    if metric == "poisson_deviance":
+        observed = np.clip(true_values, 0.0, None)
+        expected = np.clip(predicted_values, 1e-12, None)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            terms = np.where(
+                observed > 0.0,
+                observed * np.log(observed / expected) - (observed - expected),
+                0.0 - (observed - expected),
+            )
+        value = float(2.0 * np.mean(terms))
+        return value if np.isfinite(value) else None
+
+    residual = float(np.sum((true_values - predicted_values) ** 2))
+    total = float(np.sum((true_values - np.mean(true_values)) ** 2))
+    if total <= 0.0:
+        return None
+    value = 1.0 - residual / total
+    return value if np.isfinite(value) else None
+
+
+def _baseline_score(
+    frame: pd.DataFrame,
+    target: str | None,
+    metric: str,
+) -> float | None:
+    if target is None or target not in frame.columns:
+        return None
+    values = frame[target]
+    if values.empty:
+        return None
+    if metric == "accuracy":
+        mode = values.mode(dropna=True)
+        if mode.empty:
+            return None
+        return float((values.astype(str) == str(mode.iloc[0])).mean())
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    if numeric.empty:
+        return None
+    mean = float(numeric.mean())
+    if metric == "poisson_deviance":
+        observed = np.clip(numeric.to_numpy(dtype=float), 0.0, None)
+        expected = np.clip(np.full_like(observed, mean), 1e-12, None)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            terms = np.where(
+                observed > 0.0,
+                observed * np.log(observed / expected) - (observed - expected),
+                0.0 - (observed - expected),
+            )
+        value = float(2.0 * np.mean(terms))
+        return value if np.isfinite(value) else None
+    # A constant prediction has zero explained variance by definition.
+    return 0.0
+
+
+def evaluate_hypothesis_variants(
+    *,
+    hypothesis_id: str,
+    module_path: str | Path,
+    frames: Mapping[str, pd.DataFrame],
+    variants: VariantSet,
+    target_column: str | None,
+    target_kind: str | None,
+    run_dir: str | Path,
+    required_columns: Sequence[str] = (),
+    optional_columns: Sequence[str] = (),
+    seed: int = 0,
+    timeout: float = 60.0,
+) -> VariantReport:
+    """Run one generated module on original/anonymized/jumbled frames.
+
+    Each run happens in its own child-process run directory so the original
+    predictions are never overwritten. A missing variant or a failed execution
+    leaves that score absent; :func:`evaluate_variants` then reports
+    ``insufficient`` rather than inventing a pass.
+    """
+    from .execute import run_module
+
+    run_dir = Path(run_dir)
+    source_module = Path(module_path)
+    if not source_module.is_absolute():
+        source_module = run_dir / source_module
+    metric, higher_is_better = _metric_for_target(target_kind)
+    warnings: list[str] = []
+    scores: dict[str, float | None] = {}
+    baselines: dict[str, float | None] = {}
+
+    for kind in ("original", "anonymized", "jumbled"):
+        frame = frames.get(kind)
+        if frame is None:
+            warnings.append(f"variant_missing:{kind}")
+            scores[kind] = None
+            baselines[kind] = None
+            continue
+
+        variant_dir = run_dir / "variants" / kind
+        hypotheses_dir = variant_dir / "hypotheses"
+        hypotheses_dir.mkdir(parents=True, exist_ok=True)
+        copied = hypotheses_dir / source_module.name
+        copied.write_bytes(source_module.read_bytes())
+        dataset_path = variant_dir / "dataset.csv"
+        # The runner reads a plain CSV and reports a positional row index, so
+        # reset the index and never inject an extra feature column.
+        variant_frame = frame.reset_index(drop=True)
+        variant_frame.to_csv(dataset_path, index=False)
+        frame = variant_frame
+
+        try:
+            execution = run_module(
+                copied,
+                dataset_path,
+                seed,
+                run_dir=variant_dir,
+                timeout=timeout,
+            )
+        except Exception as exc:  # noqa: BLE001 - one variant must not abort the gate
+            warnings.append(f"variant_execution_failed:{kind}:{type(exc).__name__}")
+            scores[kind] = None
+            baselines[kind] = _baseline_score(frame, target_column, metric)
+            continue
+
+        if execution.status != "ok" or not execution.predictions_path:
+            warnings.append(
+                f"variant_execution_{execution.status}:{kind}"
+                + (f":{execution.error}" if execution.error else "")
+            )
+            scores[kind] = None
+        else:
+            scores[kind] = _score_predictions(
+                frame,
+                variant_dir / execution.predictions_path,
+                target_column,
+                metric,
+            )
+            if scores[kind] is None:
+                warnings.append(f"variant_score_missing:{kind}")
+        baselines[kind] = _baseline_score(frame, target_column, metric)
+
+    pii_columns_used = [
+        column
+        for column in dict.fromkeys([*required_columns, *optional_columns])
+        if column
+    ]
+    report = evaluate_variants(
+        variants,
+        metric=metric,
+        original=scores.get("original"),
+        anonymized=scores.get("anonymized"),
+        jumbled=scores.get("jumbled"),
+        jumbled_baseline=baselines.get("jumbled"),
+        pii_columns_used=pii_columns_used,
+        higher_is_better=higher_is_better,
+    )
+    report.hypothesis_id = hypothesis_id
+    report.warnings = list(dict.fromkeys([*report.warnings, *warnings]))
+    return report
+
+
+def aggregate_variant_reports(
+    variants: VariantSet,
+    reports: Sequence[VariantReport],
+) -> VariantReport:
+    """Merge per-hypothesis variant reports into the run-level artifact report."""
+    scores: list[VariantScore] = []
+    reasons: list[str] = []
+    warnings: list[str] = []
+    notes: list[str] = []
+    any_leak = False
+    any_pii = False
+    all_pass = bool(reports)
+
+    for report in reports:
+        label = report.hypothesis_id or "(unknown)"
+        any_leak = any_leak or report.jumbled_label_leak
+        any_pii = any_pii or report.pii_reliance
+        all_pass = all_pass and report.verdict == "pass"
+        for score in report.scores:
+            scores.append(
+                score.model_copy(
+                    update={
+                        "notes": [
+                            *score.notes,
+                            f"hypothesis={label}",
+                        ]
+                    }
+                )
+            )
+        for reason in report.reasons:
+            reasons.append(f"{label}: {reason}")
+            warnings.append(f"{label}: {reason}")
+        for warning in report.warnings:
+            warnings.append(f"{label}: {warning}")
+        notes.extend(f"{label}: {note}" for note in report.notes)
+
+    if any_leak or any_pii:
+        verdict: Literal["pass", "reject", "insufficient"] = "reject"
+    elif all_pass:
+        verdict = "pass"
+    else:
+        verdict = "insufficient"
+
+    first = reports[0] if reports else None
+    return VariantReport(
+        variants=variants,
+        seed=variants.original.seed,
+        target_column=first.target_column if first is not None else None,
+        metric=first.metric if first is not None else None,
+        higher_is_better=(
+            first.higher_is_better if first is not None else True
+        ),
+        scores=scores,
+        jumbled_label_leak=any_leak,
+        pii_reliance=any_pii,
+        verdict=verdict,
+        reasons=list(dict.fromkeys(reasons)),
+        notes=list(dict.fromkeys(notes)),
+        warnings=list(dict.fromkeys(warnings)),
+    )

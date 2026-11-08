@@ -299,9 +299,7 @@ def _model_name(settings: Settings | None, llm: Any, explicit: str | None) -> st
     if explicit:
         return explicit
     if settings is not None:
-        if settings.llm_provider == "gemini":
-            return settings.gemini_model
-        return settings.llm_provider
+        return settings.llm_model_name
     if llm is not None:
         return type(llm).__name__
     return "deterministic"

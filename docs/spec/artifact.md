@@ -1,6 +1,7 @@
 # Output artifact and component handoff
 
-Status: decided in [ticket #11](https://github.com/hoisin-sauce/whack-26/issues/11). Applies to the 6–8 hour slice.
+Status: implemented in [ticket #11](https://github.com/hoisin-sauce/whack-26/issues/11).
+Current artifact schema: `1.5.0`.
 
 ## Run directory
 
@@ -13,9 +14,14 @@ runs/<run_id>/
   research.json
   validation.json             # when --validate is used
   generation_validation.json  # when --validate-generation is used
+  final_judge.json            # when --judge is used
+  final_judge.md
+  final_judge.html
+  final_judge.fragment.html
   model_search.json           # when --model-search is used
   variants.json               # when --variants is used
   research_models.json        # research-to-model extraction
+  field_pitfalls.json         # when --field-pitfalls or --full is used
   scrape.json / scrape.md     # when scraping is enabled
   hypotheses/<hyp_id>.py
   predictions/<hyp_id>.csv
@@ -30,7 +36,7 @@ All paths inside the artifact are relative to the run directory. `dataset.source
 
 ```json
 {
-  "schema_version": "1.3.0",
+  "schema_version": "1.5.0",
   "run": {
     "run_id": "run_20261107T213000Z_a1b2c3d4",
     "started_at": "2026-11-07T21:30:00Z",
@@ -39,7 +45,7 @@ All paths inside the artifact are relative to the run directory. `dataset.source
     "seed": 0,
     "tool_version": "0.1.0",
     "models": {
-      "llm": "gemini-3.6-flash",
+      "llm": "deepseek-flash",
       "embedding": "gemini-embedding-2@768"
     }
   },
@@ -51,6 +57,7 @@ All paths inside the artifact are relative to the run directory. `dataset.source
     "format": "csv",
     "rows": 20640,
     "description": "1990 California census block-group housing data.",
+    "source_site": "https://example.org/california-housing",
     "target": {"name": "median_house_value", "source": "user", "confidence": 1.0},
     "time_column": null,
     "columns": [
@@ -96,7 +103,15 @@ All paths inside the artifact are relative to the run directory. `dataset.source
         "retrieved_at": "2026-11-07T21:31:00Z",
         "query": "determinants of house prices",
         "relevance": 0.82,
-        "also_seen_in": []
+        "also_seen_in": [],
+        "cited_by_count": 891,
+        "author_ids": ["openalex:A…"],
+        "author_h_index": 132,
+        "author_citation_count": 87223,
+        "author_known": true,
+        "venue_type": "journal",
+        "publisher": "Elsevier BV",
+        "metrics_source": "openalex"
       }
     ],
     "cache": {"hits": 4, "misses": 2, "offline": false},
@@ -200,7 +215,7 @@ All paths inside the artifact are relative to the run directory. `dataset.source
         "checks": [],
         "summary": "…",
         "retrieved_chunks": ["S0-how-to-use", "S2-leakage"],
-        "model": "gemini-3.6-flash",
+        "model": "deepseek-flash",
         "corpus_version": "1.0.0+…"
       },
       "validation": {
@@ -248,7 +263,7 @@ All paths inside the artifact are relative to the run directory. `dataset.source
 }
 ```
 
-### Optional 1.3.0 sections
+### Optional 1.3.0+ sections
 
 These are absent unless the corresponding stage runs, and legacy artifacts
 remain valid without them:
@@ -264,10 +279,62 @@ remain valid without them:
 - `generation_validation_summary` and `hypotheses[].generation_validation` —
   claim/design review results (`run --validate-generation` or
   `validate-models --generation`).
+- `final_judge` — the advisory final model audit: decision, findings,
+  code-verified flags, unevaluated critics, missing evidence, re-audit steps,
+  and relative paths to `final_judge.html` / `final_judge.fragment.html`
+  (`run --judge` or `judge <run>`).
+- `field_pitfalls` — field-scoped cited caveats with scope, category,
+  applicability, query list, warnings, and degraded/offline/cache state
+  (`run --field-pitfalls` or `--full`).
+
+### Optional `field_pitfalls` section (1.5.0)
+
+```json
+"field_pitfalls": {
+  "schema_version": "1.0.0",
+  "generated_at": "2026-11-07T21:33:00Z",
+  "field_path": ["Housing & Real Estate", "Housing Valuation"],
+  "queries": [
+    {
+      "field_id": "fld_…",
+      "field_name": "Housing Valuation",
+      "field_level": 2,
+      "source": "openalex",
+      "query": "Housing Valuation limitations bias"
+    }
+  ],
+  "pitfalls": [
+    {
+      "id": "F:fld_…:1",
+      "field_id": "fld_…",
+      "field_name": "Housing Valuation",
+      "field_level": 2,
+      "scope": "leaf",
+      "title": "…",
+      "pitfall": "…",
+      "category": "spatial_dependence",
+      "applies_to_dataset": "yes",
+      "applicability_reason": "Geographic columns are present: latitude, longitude.",
+      "check": "Use spatial or grouped validation …",
+      "evidence_id": "openalex:W…",
+      "source": "openalex",
+      "url": "https://…",
+      "year": 2024,
+      "relevance": 0.82,
+      "confidence": 0.71
+    }
+  ],
+  "warnings": [],
+  "degraded": false,
+  "offline": false,
+  "cache": {"hits": 2, "misses": 1, "writes": 3, "stale_hits": 0, "hit_rate": 0.4}
+}
+```
 
 The corresponding sidecar files (`model_search.json`, `variants.json`,
-`generation_validation.json`, `research_models.json`) are written next to
-`artifact.json` even when a consumer only reads the artifact.
+`generation_validation.json`, `research_models.json`, `field_pitfalls.json`)
+are written next to `artifact.json` even when a consumer only reads the
+artifact.
 
 ## Stable IDs
 
@@ -277,6 +344,7 @@ The corresponding sidecar files (`model_search.json`, `variants.json`,
 | Field | `fld_<12 hex>` | `uuid5(NAMESPACE_URL, "whack26/field/<parent_id or root>/<slug(name)>")[:12]` |
 | Factor | `fac_<12 hex>` | `sha256("<dataset_id>:<normalized name>")[:12]` |
 | Hypothesis | `hyp_<12 hex>` | `sha256(run_code + sorted(factors_used))[:12]` |
+| Field pitfall | `F:<field_id>:<n>` | Field id plus the report-wide position after the final sort and cap |
 | Research record | `<source>:<source_id>` | Stable source identity |
 | Run | `run_<timestamp>_<dataset id>` | Time-ordered and dataset-scoped |
 
@@ -294,8 +362,11 @@ IDs are content-derived where possible so re-runs and cross-run dedup can use th
 6. Hypotheses: one section per hypothesis with title, family, claim type, assumptions, factors, rationale, fenced code, execution status/runtime, predictions path, critic verdict, and the statistical-validation layer statuses and metrics.
 7. Critic summary: verdict counts and the issues that are `major`/`fatal`.
 8. Validation summary: report-status counts.
-9. Warnings and degraded modes.
-10. Provenance: Python/package versions, corpus version, git commit if available.
+9. Optional stages when present: model search, variants, research models,
+   collection metadata, field-scoped pitfalls, semantic scraping, generation
+   validation, and the final model judgement.
+10. Warnings and degraded modes.
+11. Provenance: Python/package versions, corpus version, git commit if available.
 
 No API keys, absolute paths, raw PII, or full prediction arrays.
 
@@ -326,7 +397,11 @@ calibration (`max_ece`) and dispersion (`max_dispersion`) diagnostics, and the
 generated module's `PARAMETERS` for Layer 4. Classification and count reports
 are `partial` because Layer 1 (DSR) is not applicable to them.
 
-**Report owner** reads `artifact.json` and `preview.md`, plus the statistical owner's results. They own the final report.
+**Report owner** reads `artifact.json` and `preview.md`, plus the statistical
+owner's results. They own the final report. When the final judge ran, they also
+read `final_judge.json` (structured decision and re-audit steps) and
+`final_judge.fragment.html` (CSS-free semantic HTML for the dashboard). The
+judge is advisory input, never a replacement for the statistical validation.
 
 **Independent validator** reads the artifact to know the method and sources, but writes its own validation record. The critic verdict is advisory input, never a validation.
 
@@ -340,6 +415,10 @@ are `partial` because Layer 1 (DSR) is not applicable to them.
   `collection`, `generation_validation_summary`, and
   `hypotheses[].generation_validation` sections. `1.0.0`–`1.2.0` artifacts
   remain valid.
+- `1.4.0` adds the optional `final_judge` section. `1.0.0`–`1.3.0` artifacts
+  remain valid.
+- `1.5.0` adds the optional `field_pitfalls` section. `1.0.0`–`1.4.0`
+  artifacts remain valid.
 - Consumers must reject an unknown major and warn on an unknown minor.
 - `schemas/artifact.schema.json` is generated from the Pydantic model and checked into the repo.
 - `corpus_version` and `tool_version` are separate from the schema.

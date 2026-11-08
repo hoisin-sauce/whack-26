@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Referee — the verdict is the product</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #F4F6FB; }
+  body { width: 1600px; height: 900px; overflow: hidden; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<svg id="verdict" width="1600" height="900" viewBox="0 0 1600 900" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Inter, system-ui, sans-serif">
+  <defs>
+    <filter id="soft" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" flood-color="#0F172A" flood-opacity="0.07"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="#F4F6FB"/>
+
+  <!-- Header -->
+  <text x="40" y="52" fill="#64748B" font-size="13" font-weight="600" letter-spacing="2.2">WHACK-26 · BREVAN HOWARD TRACK</text>
+  <text x="40" y="100" fill="#0F172A" font-size="38" font-weight="700" letter-spacing="-0.5">The verdict is the product.</text>
+  <text x="40" y="128" fill="#475569" font-size="16">Generation proposes. The critic refuses. The validator decides.</text>
+
+  <g transform="translate(1140, 44)">
+    <circle cx="0" cy="8" r="6" fill="#2563EB"/>
+    <text x="16" y="13" fill="#475569" font-size="13" font-weight="600">Generation</text>
+    <circle cx="132" cy="8" r="6" fill="#D97706"/>
+    <text x="148" y="13" fill="#475569" font-size="13" font-weight="600">Method critique</text>
+    <circle cx="292" cy="8" r="6" fill="#059669"/>
+    <text x="308" y="13" fill="#475569" font-size="13" font-weight="600">Statistical validation</text>
+    <text x="0" y="38" fill="#94A3B8" font-size="12">three independent layers · only the last one votes</text>
+  </g>
+
+  <!-- CARD 1 : REFINE -->
+  <rect x="40" y="165" width="740" height="550" rx="16" fill="#FFFCF5" stroke="#FDE68A" stroke-width="1.5" filter="url(#soft)"/>
+  <rect x="40" y="165" width="740" height="6" rx="3" fill="#D97706"/>
+  <rect x="64" y="190" width="150" height="32" rx="16" fill="#FEF3C7"/>
+  <text x="139" y="211" fill="#B45309" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="0.6">REFINE · MAJOR</text>
+  <text x="64" y="258" fill="#0F172A" font-size="22" font-weight="700">Causal language on a prediction claim</text>
+  <text x="64" y="286" fill="#64748B" font-size="13">linear_model · claim_type: prediction · observational data</text>
+  <rect x="64" y="305" width="692" height="86" rx="10" fill="#FFFFFF" stroke="#FDE68A"/>
+  <text x="84" y="340" fill="#334155" font-size="15" font-style="italic">“Median income is the primary driver of</text>
+  <text x="84" y="364" fill="#334155" font-size="15" font-style="italic">block-group house value.”</text>
+  <text x="64" y="424" fill="#B45309" font-size="13" font-weight="700" letter-spacing="0.4">ISSUE · S4-causal-predictive</text>
+  <text x="64" y="450" fill="#334155" font-size="14">‘Primary driver’ is causal language. The design is observational and the</text>
+  <text x="64" y="472" fill="#334155" font-size="14">claim is prediction; no identification strategy is offered.</text>
+  <text x="64" y="514" fill="#047857" font-size="13" font-weight="700" letter-spacing="0.4">FIX</text>
+  <text x="64" y="540" fill="#334155" font-size="14">Relabel the claim as predictive, or add an identification strategy and</text>
+  <text x="64" y="562" fill="#334155" font-size="14">support it with a design that identifies the effect.</text>
+  <text x="64" y="672" fill="#92400E" font-size="12" font-weight="600">Verdict rule · major issue, no fatal issue → refine</text>
+
+  <!-- CARD 2 : REJECT -->
+  <rect x="820" y="165" width="740" height="550" rx="16" fill="#FEF2F2" stroke="#FECACA" stroke-width="1.5" filter="url(#soft)"/>
+  <rect x="820" y="165" width="740" height="6" rx="3" fill="#DC2626"/>
+  <rect x="844" y="190" width="150" height="32" rx="16" fill="#FEE2E2"/>
+  <text x="919" y="211" fill="#B91C1C" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="0.6">REJECT · FATAL</text>
+  <text x="844" y="258" fill="#0F172A" font-size="22" font-weight="700">Target leakage</text>
+  <text x="844" y="286" fill="#64748B" font-size="13">linear_model · required_columns includes median_house_value</text>
+  <rect x="844" y="305" width="692" height="86" rx="10" fill="#FFFFFF" stroke="#FECACA"/>
+  <text x="864" y="340" fill="#334155" font-size="15" font-style="italic">“Predict median_house_value from every column,</text>
+  <text x="864" y="364" fill="#334155" font-size="15" font-style="italic">including median_house_value.”</text>
+  <text x="844" y="424" fill="#B91C1C" font-size="13" font-weight="700" letter-spacing="0.4">ISSUE · S2-leakage (target.leakage)</text>
+  <text x="844" y="450" fill="#334155" font-size="14">The target is used as a feature. The deterministic check fires before the</text>
+  <text x="844" y="472" fill="#334155" font-size="14">LLM and cannot be overridden.</text>
+  <text x="844" y="514" fill="#047857" font-size="13" font-weight="700" letter-spacing="0.4">FIX</text>
+  <text x="844" y="540" fill="#334155" font-size="14">Remove the target from required/optional columns; fit all preprocessing</text>
+  <text x="844" y="562" fill="#334155" font-size="14">inside the training folds.</text>
+  <text x="844" y="672" fill="#991B1B" font-size="12" font-weight="600">Verdict rule · any fatal issue → reject</text>
+
+  <!-- Bottom band -->
+  <rect x="40" y="745" width="1520" height="100" rx="16" fill="#0F172A" filter="url(#soft)"/>
+  <text x="64" y="785" fill="#FFFFFF" font-size="18" font-weight="700">pass means no material method gap — never “the finding is true”</text>
+  <text x="64" y="812" fill="#94A3B8" font-size="13">The critic audits the method. The validator measures the model. Neither is allowed to bless a claim.</text>
+  <text x="1536" y="785" fill="#CBD5E1" font-size="13" text-anchor="end">every issue cites a corpus chunk</text>
+  <text x="1536" y="808" fill="#94A3B8" font-size="12" text-anchor="end">13 sections · 11 retrievable chunks · version 1.0.1+hash</text>
+
+  <text x="40" y="885" fill="#94A3B8" font-size="11">Referee · the system that can say “insufficient”</text>
+</svg>
+</body>
+</html>

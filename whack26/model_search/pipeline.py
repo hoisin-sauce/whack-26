@@ -11,7 +11,14 @@ from ..config import Settings
 from ..profile import DatasetProfile
 from .candidates import generate_candidates
 from .data import build_dataset_info
-from .fit import fit_model
+from .fit import (
+    BackendUnavailableError,
+    FittedModel,
+    fit_model,
+    optional_fitter,
+    register_fitter,
+    unregister_fitter,
+)
 from .metrics import metrics_for_target
 from .select import select_models
 from .splits import build_splits
@@ -22,6 +29,134 @@ from .types import (
     ModelSearchResult,
     ModelSpec,
 )
+
+
+def _sindy_forecast(fitted: Any, last_state: float, steps: int) -> np.ndarray:
+    """Simulate ``steps`` values after the training series."""
+    count = max(0, int(steps))
+    if count == 0:
+        return np.empty(0, dtype=float)
+    times = np.arange(1, count + 1, dtype=float)
+    try:
+        values = fitted.predict(initial=np.array([last_state]), times=times)
+        forecast = np.asarray(values, dtype=float).reshape(-1)
+        if forecast.size >= count:
+            return forecast[:count]
+    except Exception:  # noqa: BLE001 - fall back to a flat forecast
+        pass
+    return np.full(count, last_state, dtype=float)
+
+
+def _register_optional_fitters(backend: str) -> dict[str, Any]:
+    """Register sklearn and pysindy adapters and return the previous registry."""
+    backend_name = str(backend or "core").strip().lower()
+    previous: dict[str, Any] = {}
+
+    def _register(family: str, fitter: Any) -> None:
+        previous.setdefault(family, optional_fitter(family))
+        register_fitter(family, fitter)
+    if backend_name in {"sklearn", "full"}:
+        try:
+            from .trees import fit_tree, sklearn_available
+
+            if sklearn_available():
+
+                def _tree_fitter(
+                    spec: ModelSpec,
+                    frame: pd.DataFrame,
+                    target: str,
+                    *,
+                    sample_weight: Any = None,
+                ) -> FittedModel:
+                    data = frame.dropna(subset=[target])
+                    if data.empty:
+                        raise BackendUnavailableError(
+                            "no rows with a non-missing target"
+                        )
+                    features = data.drop(columns=[target])
+                    values = data[target]
+                    fitted = fit_tree(spec, features, values)
+                    if fitted is None:
+                        raise BackendUnavailableError(
+                            "scikit-learn is not available"
+                        )
+                    classes = (
+                        list(pd.unique(values))
+                        if spec.target_kind in {"binary", "multiclass"}
+                        else None
+                    )
+                    return FittedModel(
+                        spec=spec,
+                        target=target,
+                        n_params=max(1, len(spec.features) + 1),
+                        classes=classes,
+                        _predict=lambda frame: fitted.predict(frame),
+                        _predict_proba=(
+                            lambda frame: fitted.predict_proba(frame)
+                            if hasattr(fitted, "predict_proba")
+                            else None
+                        ),
+                    )
+
+                for family in ("tree", "forest", "gradient_boosting"):
+                    _register(family, _tree_fitter)
+        except Exception:  # noqa: BLE001 - optional backend must not break core
+            pass
+
+    if backend_name == "full":
+        try:
+            from .sindy import fit_sindy, pysindy_available
+
+            if pysindy_available():
+
+                def _sindy_fitter(
+                    spec: ModelSpec,
+                    frame: pd.DataFrame,
+                    target: str,
+                    *,
+                    sample_weight: Any = None,
+                ) -> FittedModel:
+                    data = frame.dropna(subset=[target])
+                    values = pd.to_numeric(data[target], errors="coerce").dropna()
+                    if len(values) < 5:
+                        raise BackendUnavailableError(
+                            "SINDy needs at least five training rows"
+                        )
+                    matrix = values.to_numpy(dtype=float).reshape(-1, 1)
+                    times = np.arange(len(matrix), dtype=float)
+                    fitted = fit_sindy(
+                        spec,
+                        matrix,
+                        times,
+                        feature_names=[target],
+                    )
+                    if fitted is None:
+                        raise BackendUnavailableError("pysindy is not available")
+                    last_state = float(matrix[-1, 0])
+                    return FittedModel(
+                        spec=spec,
+                        target=target,
+                        n_params=max(
+                            1, len(fitted.coefficient_table()) or 1
+                        ),
+                        warnings=["sindy_forecast_from_training_end_state"],
+                        _predict=lambda frame: _sindy_forecast(
+                            fitted, last_state, len(frame)
+                        ),
+                    )
+
+                _register("sindy", _sindy_fitter)
+        except Exception:  # noqa: BLE001 - optional backend must not break core
+            pass
+    return previous
+
+
+def _restore_optional_fitters(previous: dict[str, Any]) -> None:
+    for family, fitter in previous.items():
+        if fitter is None:
+            unregister_fitter(family)
+        else:
+            register_fitter(family, fitter)
 
 
 def _aggregate(folds: list[FoldResult]) -> tuple[dict[str, float], dict[str, float]]:
@@ -76,6 +211,44 @@ def _fit_and_score(
                 n_params=int(getattr(fitted, "n_params", 0)) or None,
                 log_likelihood=getattr(fitted, "log_likelihood", None),
             )
+            train_predictions = fitted.predict(train)
+            train_probabilities = None
+            if target_kind in {"binary", "multiclass"}:
+                try:
+                    train_probabilities = fitted.predict_proba(train)
+                except Exception:  # noqa: BLE001 - probabilities are optional
+                    train_probabilities = None
+            train_metrics = metrics_for_target(
+                target_kind,
+                train[target],
+                train_predictions,
+                probabilities=train_probabilities,
+                labels=getattr(fitted, "classes", None),
+                n_params=int(getattr(fitted, "n_params", 0)) or None,
+                log_likelihood=getattr(fitted, "log_likelihood", None),
+            )
+            train_target = pd.to_numeric(train[target], errors="coerce")
+            train_target_min = (
+                float(train_target.min()) if train_target.notna().any() else None
+            )
+            train_target_max = (
+                float(train_target.max()) if train_target.notna().any() else None
+            )
+            try:
+                numeric_predictions = np.asarray(predictions, dtype=float)
+                prediction_min = (
+                    float(np.nanmin(numeric_predictions))
+                    if np.isfinite(numeric_predictions).any()
+                    else None
+                )
+                prediction_max = (
+                    float(np.nanmax(numeric_predictions))
+                    if np.isfinite(numeric_predictions).any()
+                    else None
+                )
+            except (TypeError, ValueError):
+                prediction_min = None
+                prediction_max = None
             baseline_spec = ModelSpec(family="baseline", target_kind=target_kind)  # type: ignore[arg-type]
             baseline_model = fit_model(baseline_spec, train, target)
             baseline_predictions = baseline_model.predict(test)
@@ -99,6 +272,11 @@ def _fit_and_score(
                     test_rows=len(test),
                     metrics=metrics,
                     baseline_metrics=baseline_metrics,
+                    train_metrics=train_metrics,
+                    train_target_min=train_target_min,
+                    train_target_max=train_target_max,
+                    prediction_min=prediction_min,
+                    prediction_max=prediction_max,
                 )
             )
             coefficients.update(getattr(fitted, "coefficients", {}) or {})
@@ -177,6 +355,7 @@ def run_model_search(
         feature.feature: abs(feature.pearson or feature.effect_size or 0.0)
         for feature in screened.features
     }
+    previous_fitters = _register_optional_fitters(settings.model_search_backend)
     specs = generate_candidates(
         target=target,
         target_kind=info.target.kind,
@@ -186,17 +365,21 @@ def run_model_search(
         frame=frame,
         max_features=10,
         max_candidates=settings.model_search_max_candidates,
+        backend=settings.model_search_backend,
     )
 
     candidates: list[ModelCandidate] = []
     warnings: list[str] = list(splits.warnings) + list(screened.warnings)
-    for spec in specs:
-        candidate, candidate_warnings = _fit_and_score(
-            spec, frame, target, splits, info.target.kind
-        )
-        warnings.extend(candidate_warnings)
-        if candidate is not None:
-            candidates.append(candidate)
+    try:
+        for spec in specs:
+            candidate, candidate_warnings = _fit_and_score(
+                spec, frame, target, splits, info.target.kind
+            )
+            warnings.extend(candidate_warnings)
+            if candidate is not None:
+                candidates.append(candidate)
+    finally:
+        _restore_optional_fitters(previous_fitters)
 
     if not candidates:
         return ModelSearchResult(
@@ -219,7 +402,7 @@ def run_model_search(
         seed=settings.model_search_seed,
         backend=settings.model_search_backend,  # type: ignore[arg-type]
     )
-    return select_models(
+    result = select_models(
         candidates,
         target_kind=info.target.kind,
         baseline=baseline,
@@ -228,3 +411,6 @@ def run_model_search(
         target=target,
         warnings=warnings,
     )
+    result.dataset_info = info.model_dump(mode="json")
+    result.screen = screened.model_dump(mode="json")
+    return result

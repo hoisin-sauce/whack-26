@@ -26,6 +26,7 @@ _MAX_RESEARCH_RECORDS = 10
 _MAX_COLUMNS = 12
 _MAX_MISSING_COLUMNS = 6
 _MAX_EVIDENCE_IDS = 4
+_MAX_FIELD_PITFALLS = 12
 
 
 def _text(value: Any) -> str:
@@ -214,6 +215,65 @@ def _field_path_section(artifact: Artifact) -> list[str]:
     lines.append("")
     for item in classification.path:
         lines.append(f"- **{_text(item.name)}** (level {item.level}): {_text(item.description)}")
+    lines.append("")
+    return lines
+
+
+def _field_pitfalls_section(artifact: Artifact) -> list[str]:
+    report = artifact.field_pitfalls
+    if report is None or not report.pitfalls:
+        return []
+    lines = ["## Field pitfalls", ""]
+    flags = []
+    if report.degraded:
+        flags.append("degraded")
+    if report.offline:
+        flags.append("offline")
+    if flags:
+        lines.append(f"_Run flags: {', '.join(flags)}._")
+        lines.append("")
+    if report.field_path:
+        path = " \u2192 ".join(f"`{_text(name)}`" for name in report.field_path)
+        lines.append(f"- Field path: {path}")
+        lines.append("")
+    shown = report.pitfalls[:_MAX_FIELD_PITFALLS]
+    current_field: str | None = None
+    for pitfall in shown:
+        key = pitfall.field_id or pitfall.field_name
+        if key != current_field:
+            if current_field is not None:
+                lines.append("")
+            lines.append(
+                f"### `{_text(pitfall.field_name)}` "
+                f"(level {pitfall.field_level}, scope {_text(pitfall.scope)})"
+            )
+            lines.append("")
+            current_field = key
+        lines.append(
+            f"- **{_text(pitfall.category)}** | "
+            f"applies: {_text(pitfall.applies_to_dataset)}"
+        )
+        lines.append(f"  - Pitfall: {_text(pitfall.pitfall)}")
+        if pitfall.applicability_reason:
+            lines.append(f"  - Why: {_text(pitfall.applicability_reason)}")
+        if pitfall.check:
+            lines.append(f"  - Check: {_text(pitfall.check)}")
+        evidence = f"`{_text(pitfall.evidence_id)}`"
+        details = ", ".join(
+            part for part in (pitfall.source, str(pitfall.year) if pitfall.year else "")
+            if part
+        )
+        if details:
+            evidence += f" ({_text(details)})"
+        if pitfall.url:
+            evidence += f" \u2014 [{_text(pitfall.url)}]({pitfall.url})"
+        lines.append(f"  - Evidence: {evidence}")
+    if len(report.pitfalls) > _MAX_FIELD_PITFALLS:
+        lines.append("")
+        lines.append(
+            f"_{len(report.pitfalls) - _MAX_FIELD_PITFALLS} more pitfalls are "
+            "recorded in the artifact._"
+        )
     lines.append("")
     return lines
 
@@ -660,6 +720,15 @@ def _validation_summary_section(artifact: Artifact) -> list[str]:
     return lines
 
 
+def _final_judge_section(artifact: Artifact) -> list[str]:
+    report = artifact.final_judge
+    if report is None:
+        return []
+    from .final_judge.report import render_markdown
+
+    return render_markdown(report, heading_level=2).splitlines() + [""]
+
+
 def _warnings_section(artifact: Artifact) -> list[str]:
     lines = ["## Warnings and degraded modes", ""]
     warnings: list[str] = []
@@ -789,6 +858,7 @@ def render_preview(artifact: Artifact, *, base_dir: Path) -> str:
     ]
     lines.extend(_dataset_section(artifact))
     lines.extend(_field_path_section(artifact))
+    lines.extend(_field_pitfalls_section(artifact))
     lines.extend(_research_section(artifact))
     lines.extend(_semantic_scraping_section(artifact))
     lines.extend(_factors_section(artifact))
@@ -800,6 +870,7 @@ def render_preview(artifact: Artifact, *, base_dir: Path) -> str:
     lines.extend(_critic_section(artifact))
     lines.extend(_validation_summary_section(artifact))
     lines.extend(_generation_validation_summary_section(artifact))
+    lines.extend(_final_judge_section(artifact))
     lines.extend(_warnings_section(artifact))
     lines.extend(_provenance_section(artifact))
     while lines and not lines[-1]:

@@ -1,4 +1,4 @@
-"""LLM clients: native Gemini REST and a deterministic mock provider."""
+"""LLM clients: DeepSeek chat completions, native Gemini REST, and a mock provider."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import httpx
 from .common import redact_secrets
 from .config import Settings
 
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 BACKOFF_SECONDS = (1.0, 4.0)
@@ -225,6 +226,193 @@ class GeminiLLMClient:
 
         raise LLMError(
             f"Gemini request failed after {attempts} attempts: {last_error or 'unknown error'}",
+            purpose=purpose,
+        )
+
+
+def _deepseek_system_prompt(system: str, schema: dict[str, Any]) -> str:
+    """Combine the caller prompt with JSON-mode instructions and the schema."""
+    parts = [system.strip()] if system.strip() else []
+    parts.append(
+        "Respond with a single JSON object only; do not include markdown "
+        "fences or commentary."
+    )
+    if schema:
+        parts.append(
+            "The JSON object must conform to this JSON Schema:\n"
+            + json.dumps(schema, separators=(",", ":"))
+        )
+    return "\n\n".join(parts)
+
+
+class DeepSeekLLMClient:
+    """OpenAI-compatible DeepSeek client with JSON mode and bounded retries."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model: str = "deepseek-flash",
+        base_url: str = DEEPSEEK_BASE_URL,
+        timeout: float = 60.0,
+        max_retries: int = 2,
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if not api_key:
+            raise ValueError("DEEPSEEK_API_KEY is required for the DeepSeek provider")
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.max_retries = max_retries
+        self.thinking_supported = True
+        self._sleep = sleep
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(timeout),
+            follow_redirects=True,
+            transport=transport,
+        )
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> "DeepSeekLLMClient":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def generate_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        schema: dict[str, Any],
+        model: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        purpose: str = "generic",
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": model or self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": _deepseek_system_prompt(system, schema),
+                },
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+            "stream": False,
+        }
+        if self.thinking_supported:
+            # Deterministic extraction does not need the default thinking pass.
+            payload["thinking"] = {"type": "disabled"}
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "content-type": "application/json",
+        }
+
+        attempts = self.max_retries + 1
+        last_error: str | None = None
+        for attempt in range(attempts):
+            try:
+                response = self._client.post(url, headers=headers, json=payload)
+            except httpx.TransportError as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if attempt < self.max_retries:
+                    self._sleep(BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)])
+                    continue
+                raise LLMError(
+                    f"DeepSeek request failed after {attempts} attempts: {last_error}",
+                    purpose=purpose,
+                ) from exc
+
+            if response.status_code == 400 and "thinking" in payload:
+                # Some deployments reject the thinking toggle outright. Drop it
+                # for the rest of the session and retry before treating 400 as fatal.
+                payload.pop("thinking", None)
+                self.thinking_supported = False
+                try:
+                    response = self._client.post(url, headers=headers, json=payload)
+                except httpx.TransportError as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+                    if attempt < self.max_retries:
+                        self._sleep(
+                            BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+                        )
+                        continue
+                    raise LLMError(
+                        f"DeepSeek request failed after {attempts} attempts: {last_error}",
+                        purpose=purpose,
+                    ) from exc
+
+            if response.status_code in RETRYABLE_STATUS:
+                last_error = f"HTTP {response.status_code}: {response.text[:500]}"
+                if attempt < self.max_retries:
+                    self._sleep(BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)])
+                    continue
+                raise LLMError(
+                    f"DeepSeek request failed after {attempts} attempts: {last_error}",
+                    purpose=purpose,
+                )
+
+            if response.status_code >= 400:
+                raise LLMError(
+                    f"DeepSeek HTTP {response.status_code}: {response.text[:500]}",
+                    purpose=purpose,
+                )
+
+            finish_reason: str | None = None
+            output_tokens: int | None = None
+            try:
+                body = response.json()
+                choices = body.get("choices") or []
+                if not choices:
+                    raise LLMError("DeepSeek returned no choices")
+                choice = choices[0]
+                finish_reason = choice.get("finish_reason")
+                message = choice.get("message") or {}
+                text = str(message.get("content") or "").strip()
+                if not text:
+                    raise LLMError(
+                        f"DeepSeek returned empty text (finish_reason={finish_reason})"
+                    )
+                output_tokens = (body.get("usage") or {}).get("completion_tokens")
+                parsed = json.loads(text)
+            except (ValueError, LLMError) as exc:
+                last_error = str(exc)
+                details = []
+                if finish_reason:
+                    details.append(f"finish_reason={finish_reason}")
+                if output_tokens is not None:
+                    details.append(f"completion_tokens={output_tokens}")
+                if details:
+                    last_error = f"{last_error} ({', '.join(details)})"
+                if attempt < self.max_retries:
+                    self._sleep(BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)])
+                    continue
+                raise LLMError(
+                    f"DeepSeek returned unusable JSON after {attempts} attempts: {last_error}",
+                    purpose=purpose,
+                ) from exc
+
+            if not isinstance(parsed, dict):
+                last_error = f"expected a JSON object, got {type(parsed).__name__}"
+                if attempt < self.max_retries:
+                    self._sleep(BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)])
+                    continue
+                raise LLMError(
+                    f"DeepSeek returned the wrong JSON shape after {attempts} attempts: {last_error}",
+                    purpose=purpose,
+                )
+            return parsed
+
+        raise LLMError(
+            f"DeepSeek request failed after {attempts} attempts: {last_error or 'unknown error'}",
             purpose=purpose,
         )
 
@@ -483,6 +671,20 @@ def _mock_fixture(purpose: str) -> dict[str, Any]:
             "description": None,
             "reason": "mock fixture",
         }
+    if purpose.startswith("final_judge"):
+        # Mock mode has no real evidence review.  Return an explicitly
+        # unevaluated verdict so the report never shows a fake pass.
+        return {
+            "severity": "none",
+            "finding": "",
+            "evidence": "mock fixture: no final-judge review was performed",
+            "suggested_fix": "",
+            "falsification_test": "",
+            "confidence": "low",
+            "status": "suspected",
+            "could_not_evaluate": True,
+            "defect_class": "other",
+        }
     return {"mock": True, "purpose": purpose}
 
 
@@ -514,6 +716,12 @@ class MockLLMClient:
 def build_llm_client(settings: Settings) -> LLMClient:
     if settings.llm_provider == "mock":
         return MockLLMClient()
+    if settings.llm_provider == "deepseek":
+        return DeepSeekLLMClient(
+            settings.deepseek_api_key or "",
+            model=settings.deepseek_model,
+            timeout=settings.llm_timeout,
+        )
     if settings.llm_provider == "gemini":
         return GeminiLLMClient(
             settings.gemini_api_key or "",
@@ -523,6 +731,6 @@ def build_llm_client(settings: Settings) -> LLMClient:
     if settings.llm_provider == "cloudflare":
         raise LLMError(
             "Cloudflare Workers AI is configured but not implemented yet; "
-            "use WHACK26_LLM_PROVIDER=gemini or mock"
+            "use WHACK26_LLM_PROVIDER=deepseek, gemini, or mock"
         )
     raise LLMError(f"unknown LLM provider {settings.llm_provider!r}")

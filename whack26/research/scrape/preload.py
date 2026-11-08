@@ -20,6 +20,7 @@ from ...config import Settings
 from ..arxiv import arXivAdapter
 from ..base import DATASET_SOURCES, ResearchRecord, SourceError
 from ..cache import ResearchCache
+from ..metrics import metrics_metadata
 from ..openalex import OpenAlexAdapter
 from .identity import canonicalize_url, metadata_identity, title_identity, url_hash
 from .models import Document, ScrapeResult
@@ -114,6 +115,7 @@ def _record_to_document(record: ResearchRecord, *, preloaded: bool = True) -> Do
         metadata["doi"] = record.doi
     if record.also_seen_in:
         metadata["also_seen_in"] = list(record.also_seen_in)
+    metadata.update(metrics_metadata(record))
 
     return Document(
         id=_document_id(kind, canonical, content_hash),
@@ -126,6 +128,7 @@ def _record_to_document(record: ResearchRecord, *, preloaded: bool = True) -> Do
         url_hash=url_hash(canonical) if canonical else None,
         content_sha512=content_hash,
         authors=list(record.authors),
+        publisher=record.publisher,
         published_at=str(record.year) if record.year is not None else None,
         license=record.license,
         metadata=metadata,

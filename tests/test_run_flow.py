@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -13,7 +14,7 @@ from whack26.cli import main
 from whack26.config import Settings
 from whack26.research.base import ResearchRecord
 from whack26.research.pipeline import ResearchResult
-from whack26.run import run_pipeline
+from whack26.run import _variant_target_kind, run_pipeline
 from whack26.validation.models import ValidationConfig
 
 
@@ -152,6 +153,16 @@ def test_run_pipeline_with_model_search_variants_and_generation_validation(
     assert artifact.model_search.candidate_count > 0
     assert artifact.variants is not None
     assert artifact.variants.verdict in {"pass", "reject", "insufficient"}
+    assert len(artifact.variants.variants) == 3
+    variants_payload = json.loads(
+        (run_dir / "variants.json").read_text(encoding="utf-8")
+    )
+    assert variants_payload["scores"], "variant evaluation did not run"
+    assert {score["kind"] for score in variants_payload["scores"]} == {
+        "original",
+        "anonymized",
+        "jumbled",
+    }
     assert artifact.collection is not None
     assert artifact.collection["design"] == "observational"
     assert artifact.generation_validation_summary is not None
@@ -159,6 +170,17 @@ def test_run_pipeline_with_model_search_variants_and_generation_validation(
         hypothesis.generation_validation is not None
         for hypothesis in artifact.hypotheses
     )
+    variants_payload = json.loads(
+        (run_dir / "variants.json").read_text(encoding="utf-8")
+    )
+    variant_notes = [
+        note
+        for score in variants_payload["scores"]
+        for note in score.get("notes", [])
+    ]
+    assert any(note.startswith("hypothesis=") for note in variant_notes)
+    assert variants_payload["verdict"] == artifact.variants.verdict
+
     preview = outcome.preview_path.read_text(encoding="utf-8")
     assert "## Automated model search" in preview
     assert "## Dataset variants" in preview
@@ -508,3 +530,21 @@ def test_run_pipeline_with_scrape_and_seed_writes_documents(
     assert artifact.research.semantic_scraping is not None
     assert len(artifact.research.semantic_scraping.documents) >= 1
     assert (run_dir / "scrape.json").is_file()
+
+
+def test_variant_target_kind_prefers_model_search() -> None:
+    screen = SimpleNamespace(target=SimpleNamespace(kind="numeric"))
+    model_search = SimpleNamespace(target_kind="binary")
+
+    assert _variant_target_kind(screen, model_search) == "binary"
+    assert _variant_target_kind(screen, SimpleNamespace(target_kind="")) == "continuous"
+    assert _variant_target_kind(screen, None) == "continuous"
+
+
+def test_variant_target_kind_maps_screen_kinds() -> None:
+    categorical = SimpleNamespace(target=SimpleNamespace(kind="categorical"))
+    unknown = SimpleNamespace(target=SimpleNamespace(kind="ordinal"))
+
+    assert _variant_target_kind(categorical, None) == "multiclass"
+    assert _variant_target_kind(unknown, None) is None
+    assert _variant_target_kind(None, None) is None

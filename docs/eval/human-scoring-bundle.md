@@ -5,7 +5,7 @@
 **Current commit:** `d74836a` (plus local uncommitted docs)
 **Score file:** `eval/scores.json` (generated template; fill the nulls)
 
-> **Important:** score the **live cold run**, not a mock run. Mock mode exercises plumbing only. Live cold-run paths currently exist for **California Housing** and **Palmer Penguins**; the other eight need a live cold pass, which is blocked by Gemini quota. Do not score mock paths as if they were live results.
+> **Important:** score the **live cold run**, not a mock run. Mock mode exercises plumbing only. Live cold-run paths currently exist for **California Housing** and **Palmer Penguins**; the other eight need a live cold pass. The LLM now defaults to DeepSeek, so the earlier Gemini quota block no longer applies to language calls; embeddings still use Gemini. Do not score mock paths as if they were live results.
 
 ---
 

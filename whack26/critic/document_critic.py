@@ -64,9 +64,7 @@ class _UnavailableEmbeddings:
 
 
 def _model_name(settings: Settings) -> str:
-    if settings.llm_provider == "gemini":
-        return settings.gemini_model
-    return settings.llm_provider
+    return settings.llm_model_name
 
 
 def _as_list(value: Any) -> list[str]:

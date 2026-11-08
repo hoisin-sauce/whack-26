@@ -211,3 +211,106 @@ def test_metadata_allows_explicit_no_factor_justification() -> None:
         dataset_columns=["x", "y"],
     )
     assert result.ok, result.errors
+
+
+def test_relative_imports_are_rejected() -> None:
+    result = validate_code("from . import helper\n\n" + VALID_CODE)
+
+    assert not result.ok
+    assert any("relative imports" in message for message in result.messages)
+
+
+def test_dunder_attribute_access_is_rejected() -> None:
+    code = VALID_CODE.replace(
+        "    np.random.seed(seed)",
+        "    np.random.seed(seed)\n    version = np.__version__",
+    )
+
+    result = validate_code(code)
+
+    assert not result.ok
+    assert any("dunder attribute" in message for message in result.messages)
+
+
+def test_async_and_class_definitions_are_rejected() -> None:
+    async_result = validate_code(VALID_CODE + "\n\nasync def helper():\n    pass\n")
+    class_result = validate_code(VALID_CODE + "\n\nclass Helper:\n    pass\n")
+
+    assert not async_result.ok
+    assert any("async functions" in message for message in async_result.messages)
+    assert not class_result.ok
+    assert any("class definitions" in message for message in class_result.messages)
+
+
+def test_oversized_code_is_rejected() -> None:
+    from whack26.hypotheses.validate import MAX_CODE_BYTES
+
+    result = validate_code(VALID_CODE + "\n# " + "x" * MAX_CODE_BYTES)
+
+    assert not result.ok
+    assert any("the limit is" in message for message in result.messages)
+
+
+def test_url_socket_and_path_literals_are_rejected() -> None:
+    url = validate_code(
+        VALID_CODE.replace(
+            "    np.random.seed(seed)",
+            '    np.random.seed(seed)\n    target = "https://example.test/data"',
+        )
+    )
+    socket_literal = validate_code(
+        VALID_CODE.replace(
+            "    np.random.seed(seed)",
+            '    np.random.seed(seed)\n    kind = "socket"',
+        )
+    )
+    path = validate_code(
+        VALID_CODE.replace(
+            "    np.random.seed(seed)",
+            '    np.random.seed(seed)\n    name = "secret.csv"',
+        )
+    )
+
+    assert any("URL string" in message for message in url.messages)
+    assert any("network-related" in message for message in socket_literal.messages)
+    assert any("file path" in message for message in path.messages)
+
+
+def test_file_io_helpers_are_rejected() -> None:
+    for call in (
+        'df.to_csv("result.bin")',
+        'np.fromfile("result.bin")',
+        'np.load("result.bin")',
+        'scipy.io.loadmat("result.bin")',
+    ):
+        result = validate_code(
+            VALID_CODE.replace(
+                "    np.random.seed(seed)",
+                f"    np.random.seed(seed)\n    {call}",
+            )
+        )
+
+        assert not result.ok, call
+        assert any("file access" in message for message in result.messages), call
+
+
+def test_contract_signature_errors_are_reported() -> None:
+    no_default = validate_code(
+        VALID_CODE.replace("def run(df: pd.DataFrame, seed: int = 0)", "def run(df, seed)")
+    )
+    bad_applies = validate_code(
+        VALID_CODE.replace("def applies(df: pd.DataFrame)", "def applies(frame)")
+    )
+
+    assert any("default value of 0" in message for message in no_default.messages)
+    assert any("signature `applies(df)`" in message for message in bad_applies.messages)
+
+
+def test_empty_and_syntax_error_code_are_rejected() -> None:
+    empty = validate_code("   ")
+    syntax = validate_code("def broken(:\n    pass")
+
+    assert not empty.ok
+    assert any("code is empty" in message for message in empty.messages)
+    assert not syntax.ok
+    assert any("syntax" in message for message in syntax.messages)

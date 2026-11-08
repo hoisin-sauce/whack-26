@@ -24,6 +24,7 @@ __all__ = [
     "DOCUMENT_SYSTEM_PROMPT",
     "DocumentChoice",
     "classify_document",
+    "classify_document_hierarchically",
 ]
 
 DOCUMENT_CHOICE_SCHEMA: dict[str, Any] = {
@@ -463,3 +464,31 @@ def classify_document(
     confidence = _clamp(sum(scores) / len(scores))
     store.assign_document_path(document.id, field_ids, confidence=confidence)
     return field_ids
+
+
+def classify_document_hierarchically(
+    document: Document,
+    *,
+    store: FieldStore,
+    llm: Any,
+    embeddings: Any,
+    settings: Settings,
+) -> list[str]:
+    """Place one document through the dynamic hierarchy package.
+
+    Unlike :func:`classify_document`, this path uses the devplan's
+    highest-directly-related placement, branching, promotion, subtree
+    re-levelling, and document reassignment. It requires the document to be
+    persisted already. Failures are raised so the caller can fall back to the
+    legacy create/assign walk.
+    """
+    from ...hierarchy.place import place_document
+
+    result = place_document(
+        document,
+        store=store,
+        llm=llm,
+        embeddings=embeddings,
+        settings=settings,
+    )
+    return list(result.path_ids)

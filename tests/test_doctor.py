@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import types
 from pathlib import Path
 
+import httpx
 import pytest
 
 import whack26.doctor as doctor
@@ -18,7 +20,7 @@ def test_mock_doctor_passes_without_network(tmp_path: Path) -> None:
     assert statuses["Python"] == "PASS"
     assert statuses["Packages"] == "PASS"
     assert statuses["Pitfalls corpus"] == "PASS"
-    assert statuses["Gemini LLM"] == "SKIP"
+    assert statuses["Mock LLM"] == "SKIP"
     assert statuses["OpenAlex"] == "SKIP"
     text = format_checks(checks)
     assert "STATUS" in text
@@ -34,6 +36,19 @@ def test_missing_corpus_fails(tmp_path: Path) -> None:
     corpus = next(check for check in checks if check.name == "Pitfalls corpus")
     assert corpus.status == "FAIL"
     assert exit_code(checks) == 1
+
+
+def test_missing_deepseek_key_fails_in_live_mode(tmp_path: Path) -> None:
+    settings = Settings.from_env(
+        {
+            "WHACK26_LLM_PROVIDER": "deepseek",
+            "WHACK26_EMBED_PROVIDER": "gemini",
+        }
+    ).with_overrides(cache_dir=tmp_path / "cache")
+    checks = run_doctor(settings, network=False)
+    deepseek = next(check for check in checks if check.name == "DeepSeek key")
+    assert deepseek.status == "FAIL"
+    assert deepseek.hint
 
 
 def test_missing_gemini_key_fails_in_live_mode(tmp_path: Path) -> None:
@@ -119,10 +134,174 @@ def test_non_finite_embedding_vectors_fail(
         doctor, "build_embedding_client", lambda _: _FakeEmbeddingClient()
     )
 
-    check = doctor._check_gemini_embeddings(settings)
+    check = doctor._check_embeddings(settings)
 
     assert check.status == "FAIL"
     assert "finite" in check.detail.lower()
+
+
+class FakeLLMClient:
+    def __init__(self, payload):
+        self.payload = payload
+        self.closed = False
+
+    def generate_json(self, **kwargs):
+        if isinstance(self.payload, Exception):
+            raise self.payload
+        return self.payload
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def live_settings(**overrides) -> Settings:
+    values = {
+        "llm_provider": "gemini",
+        "embed_provider": "gemini",
+        "gemini_api_key": "test-key",
+        "embed_dims": 3,
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_llm_probe_reports_success_and_failure(monkeypatch) -> None:
+    client = FakeLLMClient({"ok": True})
+    monkeypatch.setattr(doctor, "build_llm_client", lambda _settings: client)
+
+    passed = doctor._check_llm(live_settings())
+
+    assert passed.status == "PASS"
+    assert client.closed is True
+
+    monkeypatch.setattr(
+        doctor,
+        "build_llm_client",
+        lambda _settings: FakeLLMClient(RuntimeError("provider down")),
+    )
+    failed = doctor._check_llm(live_settings())
+    assert failed.status == "FAIL"
+    assert "provider down" in failed.detail
+
+    monkeypatch.setattr(
+        doctor,
+        "build_llm_client",
+        lambda _settings: FakeLLMClient({"ok": False}),
+    )
+    unexpected = doctor._check_llm(live_settings())
+    assert unexpected.status == "FAIL"
+    assert "unexpected response" in unexpected.detail
+
+
+def test_embedding_probe_checks_dimensions_and_finiteness(monkeypatch) -> None:
+    class FakeEmbeddingClient:
+        def __init__(self, vectors):
+            self.vectors = vectors
+            self.closed = False
+
+        def embed(self, texts):
+            return self.vectors
+
+        def close(self) -> None:
+            self.closed = True
+
+    client = FakeEmbeddingClient([[0.0, 1.0, 0.0]])
+    monkeypatch.setattr(doctor, "build_embedding_client", lambda _settings: client)
+    passed = doctor._check_embeddings(live_settings())
+    assert passed.status == "PASS"
+    assert client.closed is True
+
+    monkeypatch.setattr(
+        doctor,
+        "build_embedding_client",
+        lambda _settings: FakeEmbeddingClient([[1.0, 0.0]]),
+    )
+    wrong_dims = doctor._check_embeddings(live_settings())
+    assert wrong_dims.status == "FAIL"
+    assert "expected 3 dims" in wrong_dims.detail
+
+    monkeypatch.setattr(
+        doctor,
+        "build_embedding_client",
+        lambda _settings: FakeEmbeddingClient([[0.0, math.inf, 0.0]]),
+    )
+    non_finite = doctor._check_embeddings(live_settings())
+    assert non_finite.status == "FAIL"
+    assert "not finite" in non_finite.detail
+
+
+class FakeOpenAlexClient:
+    def __init__(self, response=None, error: Exception | None = None):
+        self.response = response
+        self.error = error
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        return None
+
+    def get(self, url, params=None):
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+
+class FakeOpenAlexResponse:
+    def __init__(self, status_code: int, payload=None):
+        self.status_code = status_code
+        self.payload = payload
+
+    def json(self):
+        if isinstance(self.payload, Exception):
+            raise self.payload
+        return self.payload
+
+
+def test_openalex_probe_reports_each_status(monkeypatch) -> None:
+    monkeypatch.setattr(
+        doctor.httpx,
+        "Client",
+        lambda **kwargs: FakeOpenAlexClient(
+            FakeOpenAlexResponse(200, {"meta": {"count": 1234}})
+        ),
+    )
+    passed = doctor._check_openalex(live_settings(openalex_api_key="key"))
+    assert passed.status == "PASS"
+    assert "1,234 results" in passed.detail
+
+    for status, expected in ((401, "FAIL"), (403, "WARN"), (500, "WARN")):
+        monkeypatch.setattr(
+            doctor.httpx,
+            "Client",
+            lambda status=status, **kwargs: FakeOpenAlexClient(
+                FakeOpenAlexResponse(status, {})
+            ),
+        )
+        check = doctor._check_openalex(live_settings())
+        assert check.status == expected, status
+
+    monkeypatch.setattr(
+        doctor.httpx,
+        "Client",
+        lambda **kwargs: FakeOpenAlexClient(
+            error=httpx.HTTPError("network down")
+        ),
+    )
+    failed = doctor._check_openalex(live_settings())
+    assert failed.status == "WARN"
+    assert "request failed" in failed.detail
+
+    monkeypatch.setattr(
+        doctor.httpx,
+        "Client",
+        lambda **kwargs: FakeOpenAlexClient(
+            FakeOpenAlexResponse(200, ValueError("bad json"))
+        ),
+    )
+    bad_json = doctor._check_openalex(live_settings())
+    assert bad_json.status == "PASS"
+    assert bad_json.detail == "authenticated search OK"
 
 
 def test_pyqt6_is_declared_in_optional_ui_requirements() -> None:

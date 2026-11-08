@@ -210,3 +210,112 @@ def test_semantic_scraping_section_maps_documents() -> None:
     assert section.critiques[0].corpus_version == "1.0.0+abc"
     assert section.warnings == ["scrape_budget_exhausted"]
     assert section.stats == {"documents": 1}
+
+
+def test_checked_in_schema_matches_the_exported_schema() -> None:
+    checked_in = (
+        Path(__file__).resolve().parent.parent / "schemas" / "artifact.schema.json"
+    )
+
+    assert json.loads(checked_in.read_text(encoding="utf-8")) == artifact_json_schema()
+
+
+def test_validate_rejects_non_object_json(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "artifact.json"
+    artifact_path.write_text("[]", encoding="utf-8")
+
+    loaded, errors = validate_artifact(artifact_path)
+
+    assert loaded is None
+    assert errors == ["artifact must be a JSON object"]
+
+
+def test_validate_reports_schema_validation_failures(tmp_path: Path) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact_path = run_dir / "artifact.json"
+    write_artifact(artifact_path, artifact)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload.pop("run")
+    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded, errors = validate_artifact(artifact_path)
+
+    assert loaded is None
+    assert any("schema validation failed" in error for error in errors)
+
+
+def test_validate_enforces_exactly_three_unique_families(tmp_path: Path) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact_path = run_dir / "artifact.json"
+    write_artifact(artifact_path, artifact)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["hypotheses"] = payload["hypotheses"][:2]
+    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, errors = validate_artifact(artifact_path)
+
+    assert any("exactly three hypotheses" in error for error in errors)
+
+
+def test_validate_rejects_duplicate_method_families(tmp_path: Path) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact_path = run_dir / "artifact.json"
+    write_artifact(artifact_path, artifact)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][1]["method_family"] = payload["hypotheses"][0][
+        "method_family"
+    ]
+    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, errors = validate_artifact(artifact_path)
+
+    assert "hypothesis method families are not unique" in errors
+
+
+def test_validate_requires_a_critic_and_a_prediction_count(tmp_path: Path) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact_path = run_dir / "artifact.json"
+    write_artifact(artifact_path, artifact)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["hypotheses"][0]["critic"] = None
+    payload["hypotheses"][1]["execution"]["n_predictions"] = None
+    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, errors = validate_artifact(artifact_path)
+
+    assert any("critic result is missing" in error for error in errors)
+    assert any("has no prediction count" in error for error in errors)
+
+
+def test_validate_rejects_prediction_arrays_in_research_records(
+    tmp_path: Path,
+) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact_path = run_dir / "artifact.json"
+    write_artifact(artifact_path, artifact)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["research"]["records"][0]["predictions"] = [1.0, 2.0]
+    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, errors = validate_artifact(artifact_path)
+
+    assert "research records must not embed prediction arrays" in errors
+
+
+def test_validate_rejects_final_judge_path_escape(tmp_path: Path) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact_path = run_dir / "artifact.json"
+    write_artifact(artifact_path, artifact)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["final_judge"] = {
+        "schema_version": "1.0.0",
+        "decision": "insufficient_evidence",
+        "report_path": "..\\outside.html",
+        "fragment_path": "C:\\temp\\fragment.html",
+    }
+    artifact_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    _, errors = validate_artifact(artifact_path)
+
+    assert any("escapes the run directory" in error for error in errors)
+    assert any("path must be relative" in error for error in errors)

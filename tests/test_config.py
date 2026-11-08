@@ -27,6 +27,8 @@ def test_settings_resolve_env_values(tmp_path: Path) -> None:
     settings = Settings.from_env(env)
     assert settings.llm_provider == "gemini"
     assert settings.gemini_model == "test-model"
+    assert settings.llm_model_name == "test-model"
+    assert settings.embed_model_name == "test-embed"
     assert settings.embed_dims == 32
     assert settings.offline is True
     assert settings.top_k == 7
@@ -34,6 +36,31 @@ def test_settings_resolve_env_values(tmp_path: Path) -> None:
     assert settings.max_depth == 3
     assert settings.cache_dir == tmp_path / "local-cache"
     assert settings.fields_db == tmp_path / "local-cache" / "fields.db"
+
+
+def test_default_providers_are_deepseek_and_gemini() -> None:
+    settings = Settings.from_env({})
+    assert settings.llm_provider == "deepseek"
+    assert settings.embed_provider == "gemini"
+    assert settings.llm_model_name == "deepseek-flash"
+    assert settings.embed_model_name == "gemini-embedding-2"
+
+
+def test_settings_resolve_deepseek_values() -> None:
+    settings = Settings.from_env(
+        {
+            "WHACK26_LLM_PROVIDER": "deepseek",
+            "DEEPSEEK_API_KEY": "ds-key",
+            "DEEPSEEK_MODEL": "deepseek-v4-pro",
+            "WHACK26_EMBED_PROVIDER": "gemini",
+            "GEMINI_EMBED_MODEL": "test-embed",
+        }
+    )
+    assert settings.llm_provider == "deepseek"
+    assert settings.deepseek_api_key == "ds-key"
+    assert settings.llm_model_name == "deepseek-v4-pro"
+    assert settings.llm_api_key == "ds-key"
+    assert settings.embed_model_name == "test-embed"
 
 
 def test_mock_flag_sets_both_providers() -> None:

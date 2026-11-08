@@ -44,6 +44,11 @@ BANNED_CALLS = {
 }
 
 BANNED_METHODS = {
+    "fromfile",
+    "load",
+    "loadmat",
+    "loadtxt",
+    "memmap",
     "read_csv",
     "read_excel",
     "read_feather",
@@ -52,6 +57,10 @@ BANNED_METHODS = {
     "read_pickle",
     "read_sql",
     "read_table",
+    "save",
+    "savetxt",
+    "savez",
+    "savez_compressed",
     "to_csv",
     "to_excel",
     "to_feather",
@@ -59,6 +68,7 @@ BANNED_METHODS = {
     "to_parquet",
     "to_pickle",
     "to_sql",
+    "tofile",
 }
 
 MAX_CODE_BYTES = 20 * 1024

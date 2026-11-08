@@ -9,6 +9,7 @@ import pytest
 from whack26.research.catalog import (
     CatalogError,
     CatalogQuery,
+    catalog_research_records,
     search_documents,
 )
 from whack26.research.scrape.models import Document
@@ -46,6 +47,57 @@ def make_document(
         metadata=metadata or {},
         status="classified",
     )
+
+
+def test_catalog_research_records_returns_related_credible_documents(
+    store: FieldStore,
+) -> None:
+    dataset = make_document(
+        "ds_target",
+        kind="dataset",
+        source="user",
+        title="Target dataset",
+        summary="The user's dataset.",
+        embedding=[1.0, 0.0],
+        credible=True,
+    )
+    related = make_document(
+        "pap_related",
+        title="Related paper",
+        summary="A related paper.",
+        embedding=[1.0, 0.0],
+        credible=True,
+        published_at="2021",
+        metadata={"doi": "10.1234/example"},
+    )
+    unrelated = make_document(
+        "pap_unrelated",
+        title="Unrelated paper",
+        summary="An unrelated paper.",
+        embedding=[0.0, 1.0],
+        credible=True,
+    )
+    low_credibility = make_document(
+        "pap_low",
+        title="Low credibility",
+        summary="A low-credibility paper.",
+        embedding=[1.0, 0.0],
+        credible=False,
+    )
+    for document in (dataset, related, unrelated, low_credibility):
+        store.upsert_document(document)
+
+    records = catalog_research_records(
+        store, dataset_id=dataset.id, limit=10
+    )
+
+    assert [record.id for record in records] == ["pap_related"]
+    record = records[0]
+    assert record.source == "catalog"
+    assert record.query == "catalog"
+    assert record.doi == "10.1234/example"
+    assert record.year == 2021
+    assert record.relevance == pytest.approx(1.0)
 
 
 def make_field(store: FieldStore, name: str, *, parent_id: str | None = None):

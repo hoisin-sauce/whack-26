@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from whack26.model_search import sindy, trees
 from whack26.model_search.candidates import generate_candidates
 
 FEATURE_KINDS = {
@@ -54,6 +55,24 @@ def _generate(frame: pd.DataFrame, target: str, kind: str, **kwargs):
 
 def _families(specs) -> set[str]:
     return {spec.family for spec in specs}
+
+
+def test_optional_backends_add_tree_and_sindy_specs() -> None:
+    frame = _frame()
+    core = _generate(frame, "y_continuous", "continuous", backend="core")
+    assert "tree" not in _families(core)
+
+    if trees.sklearn_available():
+        sklearn_specs = _generate(
+            frame, "y_continuous", "continuous", backend="sklearn"
+        )
+        assert {"tree", "forest", "gradient_boosting"} <= _families(
+            sklearn_specs
+        )
+
+    if sindy.pysindy_available():
+        full = _generate(frame, "y_continuous", "time_series", backend="full")
+        assert "sindy" in _families(full)
 
 
 def test_generates_baseline_first_for_every_target_kind() -> None:

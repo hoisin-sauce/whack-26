@@ -65,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     classify.add_argument("--input", required=True, help="pandas-readable dataset path")
     classify.add_argument("--description", default=None, help="optional dataset description")
+    classify.add_argument("--source-site", default=None, help="optional source site or URL")
     classify.add_argument("--target", default=None, help="target column; inferred when omitted")
     classify.add_argument("--csv-sep", default=",", help="CSV separator (default: comma)")
     classify.add_argument(
@@ -79,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="classify, research, hypothesise, critique, and emit an artifact")
     run.add_argument("--input", required=True, help="pandas-readable dataset path")
     run.add_argument("--description", default=None, help="optional dataset description")
+    run.add_argument("--source-site", default=None, help="optional source site or URL")
     run.add_argument("--target", default=None, help="target column; inferred when omitted")
     run.add_argument("--csv-sep", default=",", help="CSV separator (default: comma)")
     run.add_argument("--out", default=None, help="run directory")
@@ -115,6 +117,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="chronological train split for validation (default: 0.70)",
     )
     run.add_argument(
+        "--full",
+        action="store_true",
+        help=(
+            "enable all optional stages: scrape, model search, variants, "
+            "field pitfalls, generation validation, and statistical validation"
+        ),
+    )
+    run.add_argument(
         "--scrape",
         action="store_true",
         help="enable semantic scraping of research documents",
@@ -130,6 +140,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="run the automated regression model search",
     )
     run.add_argument(
+        "--backend",
+        choices=("core", "sklearn", "statsmodels", "full"),
+        default=None,
+        help=(
+            "model-search backend (default: WHACK26_MODEL_SEARCH_BACKEND or "
+            "core; --full selects full)"
+        ),
+    )
+    run.add_argument(
         "--variants",
         action="store_true",
         help="build anonymized and jumbled-label dataset variants",
@@ -138,6 +157,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--validate-generation",
         action="store_true",
         help="review each hypothesis against the dataset collection design",
+    )
+    run.add_argument(
+        "--judge",
+        action="store_true",
+        help="run the advisory final judge over the selected model and validation",
+    )
+    run.add_argument(
+        "--field-pitfalls",
+        action="store_true",
+        help=(
+            "search field-specific literature for pitfalls and write "
+            "field_pitfalls.json (advisory)"
+        ),
     )
     run.add_argument(
         "--collection-json",
@@ -159,6 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scrape.add_argument("--input", required=True, help="pandas-readable dataset path")
     scrape.add_argument("--description", default=None)
+    scrape.add_argument("--source-site", default=None)
     scrape.add_argument("--target", default=None)
     scrape.add_argument("--csv-sep", default=",", help="CSV separator (default: comma)")
     scrape.add_argument("--out", default=None, help="run directory")
@@ -197,6 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
     prefetch = sub.add_parser("prefetch", help="warm the research cache for a dataset")
     prefetch.add_argument("--input", required=True, help="pandas-readable dataset path")
     prefetch.add_argument("--description", default=None)
+    prefetch.add_argument("--source-site", default=None)
     prefetch.add_argument("--target", default=None)
     prefetch.add_argument("--csv-sep", default=",", help="CSV separator (default: comma)")
     prefetch.add_argument(
@@ -315,6 +349,31 @@ def build_parser() -> argparse.ArgumentParser:
     preview.add_argument("--out", default=None, help="output path (default: beside artifact)")
     preview.set_defaults(func=_cmd_preview)
 
+    judge = sub.add_parser(
+        "judge",
+        help="run the advisory final judge over a run artifact",
+    )
+    judge.add_argument("path", help="run directory or path to artifact.json")
+    judge.add_argument(
+        "--out",
+        default=None,
+        help="output directory (default: the run directory)",
+    )
+    judge.add_argument(
+        "--format",
+        choices=("json", "markdown", "html", "all"),
+        default="all",
+        help="report format to write (default: all)",
+    )
+    judge.add_argument(
+        "--refresh",
+        action="store_true",
+        help="rerun even when final_judge.json already exists",
+    )
+    judge.add_argument("--mock", action="store_true", help="use deterministic mock providers")
+    judge.add_argument("--offline", action="store_true", help="skip network probes")
+    judge.set_defaults(func=_cmd_judge)
+
     schema = sub.add_parser("schema", help="write the artifact JSON schema")
     schema.add_argument(
         "--out",
@@ -382,6 +441,7 @@ def _cmd_classify(args: argparse.Namespace) -> int:
         profile = build_profile(
             loaded,
             description=args.description,
+            source_site=args.source_site,
             target=args.target,
             llm=llm,
         )
@@ -488,18 +548,28 @@ def _cmd_run(args: argparse.Namespace) -> int:
         outcome = run_pipeline(
             input_path=Path(args.input),
             description=args.description,
+            source_site=args.source_site,
             target=args.target,
             seed=args.seed,
             mock=args.mock,
             offline=args.offline,
             refresh=args.refresh,
-            scrape=True if args.scrape else None,
+            scrape=True if args.scrape or args.full else None,
             scrape_fetch=True if args.fetch else None,
-            model_search=True if args.model_search else None,
-            variants=True if args.variants else None,
-            validate_generation=True if args.validate_generation else None,
+            model_search=True if args.model_search or args.full else None,
+            model_search_backend=(
+                args.backend or ("full" if args.full else None)
+            ),
+            variants=True if args.variants or args.full else None,
+            validate_generation=(
+                True if args.validate_generation or args.full else None
+            ),
+            final_judge=True if args.judge else None,
+            field_pitfalls=(
+                True if args.field_pitfalls or args.full else None
+            ),
             collection=collection,
-            validate=args.validate,
+            validate=args.validate or args.full,
             validation_config=validation_config,
             csv_sep=args.csv_sep,
             out_dir=Path(args.out) if args.out else None,
@@ -559,10 +629,21 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if outcome.variants is not None:
         verdict = getattr(outcome.variants, "verdict", "unknown")
         print(f"variants: verdict={verdict}")
+    if outcome.field_pitfalls is not None:
+        print(
+            f"field pitfalls: {len(outcome.field_pitfalls.pitfalls)} pitfall(s), "
+            f"{len(outcome.field_pitfalls.warnings)} warning(s)"
+        )
     for hypothesis_id, result in outcome.generation_validations.items():
         print(
             f"generation validation: {hypothesis_id} {result.verdict} "
             f"issues={len(result.issues)}"
+        )
+    if outcome.final_judge is not None:
+        print(
+            f"final judge: {outcome.final_judge.decision} "
+            f"({outcome.final_judge.n_critics_evaluated}/"
+            f"{outcome.final_judge.min_required} critics)"
         )
     print(f"artifact: {outcome.artifact_path}")
     print(f"preview: {outcome.preview_path}")
@@ -583,6 +664,7 @@ def _cmd_scrape(args: argparse.Namespace) -> int:
         outcome = run_pipeline(
             input_path=Path(args.input),
             description=args.description,
+            source_site=args.source_site,
             target=args.target,
             seed=args.seed,
             offline=args.offline,
@@ -693,6 +775,7 @@ def _cmd_prefetch(args: argparse.Namespace) -> int:
         profile = build_profile(
             loaded,
             description=args.description,
+            source_site=args.source_site,
             target=args.target,
             llm=llm,
         )
@@ -956,6 +1039,135 @@ def _cmd_validate_models(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
+    return 0
+
+
+def _judge_formats(value: str) -> tuple[str, ...]:
+    if value == "all":
+        return ("json", "markdown", "html", "fragment")
+    if value == "html":
+        return ("html", "fragment")
+    return (value,)
+
+
+def _write_judge_reports(
+    directory: Path,
+    report: Any,
+    formats: tuple[str, ...],
+) -> dict[str, Path]:
+    from .final_judge.report import write_reports
+
+    paths = write_reports(directory, report, formats=formats)
+    if "html" in paths:
+        report.report_path = paths["html"].name
+    if "fragment" in paths:
+        report.fragment_path = paths["fragment"].name
+    if "json" in paths:
+        paths["json"].write_text(
+            json.dumps(report.model_dump(mode="json"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return paths
+
+
+def _print_judge_paths(paths: dict[str, Path]) -> None:
+    for name in ("json", "markdown", "html", "fragment"):
+        if name in paths:
+            print(f"{name}: {paths[name]}")
+
+
+def _cmd_judge(args: argparse.Namespace) -> int:
+    from .final_judge.pipeline import run_final_judge
+    from .final_judge.types import FinalJudgeReport
+    from .model_search.types import ModelSearchResult
+    from .validation.models import ValidationReport
+
+    formats = _judge_formats(args.format)
+    path = Path(args.path)
+    artifact_path = path / "artifact.json" if path.is_dir() else path
+    run_dir = artifact_path.parent
+    out_dir = Path(args.out) if args.out else run_dir
+    artifact, errors = validate_artifact(artifact_path)
+    if artifact is None or errors:
+        print(
+            "error: artifact is not valid: " + "; ".join(errors[:5] or ["unknown"]),
+            file=sys.stderr,
+        )
+        return 1
+
+    existing = run_dir / "final_judge.json"
+    if existing.is_file() and not args.refresh:
+        try:
+            report = FinalJudgeReport.model_validate_json(
+                existing.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            print(
+                f"error: existing final_judge.json is unreadable: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        paths = _write_judge_reports(out_dir, report, formats)
+        print(f"final judge: {report.decision} (reused {existing.name})")
+        _print_judge_paths(paths)
+        return 0
+
+    model_search = None
+    model_search_path = run_dir / "model_search.json"
+    if model_search_path.is_file():
+        try:
+            model_search = ModelSearchResult.model_validate_json(
+                model_search_path.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as exc:
+            print(
+                f"warning: model_search.json is unreadable: {exc}",
+                file=sys.stderr,
+            )
+    validation_reports: list[ValidationReport] = []
+    validation_path = run_dir / "validation.json"
+    if validation_path.is_file():
+        try:
+            payload = json.loads(validation_path.read_text(encoding="utf-8"))
+            validation_reports = [
+                ValidationReport.model_validate(item)
+                for item in payload.get("reports", [])
+            ]
+        except (OSError, ValueError) as exc:
+            print(
+                f"warning: validation.json is unreadable: {exc}",
+                file=sys.stderr,
+            )
+
+    settings = Settings.from_env(
+        mock=args.mock, offline=True if args.offline else None
+    )
+    llm = build_llm_client(settings)
+    try:
+        report = run_final_judge(
+            model_search=model_search,
+            validation_reports=validation_reports,
+            artifact=artifact,
+            llm=llm,
+            settings=settings,
+        )
+    except (LLMError, OSError, ValueError) as exc:
+        print(
+            f"error: final judge failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        close = getattr(llm, "close", None)
+        if callable(close):
+            close()
+
+    paths = _write_judge_reports(out_dir, report, formats)
+    print(
+        f"final judge: {report.decision} "
+        f"({report.n_critics_evaluated}/{report.min_required} critics)"
+    )
+    _print_judge_paths(paths)
     return 0
 
 

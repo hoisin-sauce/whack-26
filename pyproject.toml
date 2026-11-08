@@ -1,0 +1,28 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = [
+  "optional: requires the optional model-search dependencies",
+  "ui: requires PyQt6 and a headless Qt platform",
+  "integration: runs a full mock/offline pipeline",
+  "slow: long-running test",
+  "live: requires network access or live provider credentials",
+]
+
+[tool.coverage.run]
+source = ["whack26", "eval", "stats_engine"]
+relative_files = true
+omit = [
+  "whack26/hypotheses/runner.py",
+  "whack26/validation/runner.py",
+  "UI_frontEnd.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+]

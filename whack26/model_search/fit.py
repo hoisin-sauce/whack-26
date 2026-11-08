@@ -77,6 +77,11 @@ def unregister_fitter(family: str) -> None:
     _OPTIONAL_FITTERS.pop(str(family), None)
 
 
+def optional_fitter(family: str) -> OptionalFitter | None:
+    """Return the currently registered optional fitter for ``family``."""
+    return _OPTIONAL_FITTERS.get(str(family))
+
+
 # ---------------------------------------------------------------------------
 # Fitted model
 # ---------------------------------------------------------------------------
@@ -1335,6 +1340,7 @@ __all__ = [
     "fit",
     "fit_model",
     "inverse_target_transform",
+    "optional_fitter",
     "predict",
     "predict_proba",
     "register_fitter",

@@ -207,6 +207,33 @@ def _merge_group(group: Sequence[ResearchRecord]) -> ResearchRecord:
         for value in loser.also_seen_in:
             add_seen(value)
 
+    ordered = [winner, *losers]
+
+    def first_present(name: str) -> object | None:
+        for record in ordered:
+            value = getattr(record, name)
+            if value is not None:
+                return value
+        return None
+
+    def max_present(name: str) -> int | None:
+        values = [
+            value
+            for record in ordered
+            if (value := getattr(record, name)) is not None
+        ]
+        return max(values) if values else None
+
+    merged_author_ids: list[str] = []
+    for record in ordered:
+        for author_id in record.author_ids:
+            if author_id and author_id not in merged_author_ids:
+                merged_author_ids.append(author_id)
+
+    author_known = True if any(
+        record.author_known is True for record in ordered
+    ) else winner.author_known
+
     return winner.model_copy(
         deep=True,
         update={
@@ -216,6 +243,14 @@ def _merge_group(group: Sequence[ResearchRecord]) -> ResearchRecord:
             "doi": doi,
             "license": license_name,
             "also_seen_in": seen,
+            "cited_by_count": max_present("cited_by_count"),
+            "author_ids": merged_author_ids,
+            "author_h_index": max_present("author_h_index"),
+            "author_citation_count": max_present("author_citation_count"),
+            "author_known": author_known,
+            "venue_type": first_present("venue_type"),
+            "publisher": first_present("publisher"),
+            "metrics_source": first_present("metrics_source"),
         },
     )
 

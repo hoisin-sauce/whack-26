@@ -1,12 +1,18 @@
 # Agentic hypotheses, validation, and source/search breadth
 
-Status: implementation plan — mostly implemented. Model search, variants,
-research-to-model extraction, the agent loop, collection metadata, generation
-validation, and the statistical backends are wired behind opt-in settings and
-render into the artifact. Catalog queries, Search-document emission, hierarchy
-placement, and the `kaggle`/`semantic_scholar`/`websearch` adapters are
-implemented as library surfaces but not wired. The existing
+Status: **implemented in part** — model search, variants, research-to-model
+extraction, the agent loop, collection metadata, generation validation, and the
+statistical backends are wired behind opt-in settings and render into the
+artifact; `--full` enables the matching stages together. Variants are evaluated
+per hypothesis, Search documents are emitted, scraped documents use hierarchy
+placement, and the `kaggle`/`semantic_scholar`/`websearch` adapters register when
+configured. Catalog queries remain library-only. The existing
 `whack26/validation/` statistical pipeline is extended, not replaced.
+
+> **Historical build plan.** The sections below describe the original
+> implementation waves and the state before the v4 migration landed. The
+> current authorities are `whack26/store.py`, `whack26/run.py`,
+> `whack26/validation/`, and the spec index.
 
 This is the follow-on to
 [`field-branching-and-model-search.md`](field-branching-and-model-search.md)
@@ -20,12 +26,10 @@ and the live web-scraping task. It closes the remaining devplan gaps:
 3. **Source breadth and search sessions** — missing dataset/paper adapters,
    general web search, Search documents and links, and a catalog query API.
 
-SQLite **v2 is implemented today**. The
-[`field-branching-and-model-search.md`](field-branching-and-model-search.md)
-plan adds **v3** (`documents.leaf_field_id`, `field_operations`,
-`store_meta`). This plan assumes that plan and the automated model search are
-implemented, and adds **v4** for collection metadata, research models, and
-search-session metadata.
+SQLite **v4 is implemented today**: v3 added `documents.leaf_field_id`,
+`field_operations`, and `store_meta`; v4 added collection metadata, research
+models, and search-session metadata. This plan's feature stages are wired on top
+of that schema.
 
 ## 1. Goals and non-goals
 
@@ -59,26 +63,31 @@ search-session metadata.
 
 ## 2. Current state
 
-- `whack26/hypotheses/`: one-shot `HypothesisGenerator`, static validation,
-  subprocess execution, repair loop, three families.
-- `whack26/profile.py`: schema, target, roles, description; no collection-method
-  metadata.
+- `whack26/hypotheses/`: `HypothesisGenerator`, static validation, subprocess
+  execution, repair loop, three families, variants, the bounded agent loop, and
+  the context pack.
+- `whack26/profile.py`: schema, target, roles, description, and collection
+  metadata persistence through `datasets.collection_json`.
 - `whack26/critic/`: method critic and document critic; the critic audits the
   derivation, not the data-generation process.
 - `whack26/validation/`: wired statistical validation (`adapter.py`,
-  `execute.py`, `runner.py`, `pipeline.py`, `models.py`). It runs the four-layer
-  `stats_engine` for continuous targets, skips binary/count/multiclass targets,
-  and is exposed through `run --validate` and `validate-models`.
+  `execute.py`, `runner.py`, `pipeline.py`, `models.py`, `statistical.py`,
+  `backends.py`, `engine_bridge.py`), collection metadata, and generation
+  validation. It runs the four-layer `stats_engine` for continuous return-like
+  targets and `stats_engine.validate_model` for general
+  regression/classification/count targets, and is exposed through
+  `run --validate` and `validate-models`.
 - `stats_engine.py`: four-layer strategy validation engine; wired through the
-  validation package for continuous targets, not a general regression library.
-- `whack26/research/`: OpenAlex, arXiv, HF Hub, Zenodo, Wikipedia adapters;
-  semantic-scraping catalog and robots-aware fetcher
-  (`research/scrape/fetch.py`); no Kaggle/Dataverse/OpenML/data.gov/DataCite/
-  Semantic Scholar/general web search.
-- `documents.kind` already supports `search`, but the pipeline does not create
-  Search documents or search-to-search links.
-- No generic document-catalog filter/query API beyond nearest-neighbor
-  `FieldStore.neighbors`.
+  validation package for continuous targets, with a general-target path through
+  `validate_model`.
+- `whack26/research/`: OpenAlex, arXiv, HF Hub, Zenodo, Wikipedia, Dataverse,
+  OpenML, data.gov, and DataCite adapters; optional key-gated Kaggle, Semantic
+  Scholar, and Google/Brave web search; semantic-scraping catalog and
+  robots-aware fetcher (`research/scrape/fetch.py`); metrics enrichment and
+  research-to-model extraction.
+- `run` creates one Search document per query with result links and embeddings.
+  Catalog queries (`whack26/research/catalog.py`) remain library-only.
+- The hierarchy placement path is used for scraped documents by default.
 
 ## 3. Part 1 — Agentic hypothesis generation
 
@@ -679,11 +688,10 @@ New module: `whack26/research/search_sessions.py`.
 - Link search → follow-up search with `search_result` or `linked_from`.
 - Link dataset → search/paper with `dataset_paper`/`search_result` when the
   relationship is explicit.
-- Store in `documents`/`document_links`; no new table unless session metadata
-  needs one. If needed, add `search_sessions` in schema v4.
-- Integration: `run_research` and semantic scraping create search documents;
-  the artifact/preview includes a compact search-graph summary (queries,
-  result counts, links).
+- Store in `documents`/`document_links`; no new table was needed.
+- Integration (implemented): `run` creates one Search document per query,
+  updates result links after semantic scraping, and exposes the count in the run
+  log. The catalog query remains library-only.
 - Tests: one search doc per query, idempotent rerun, links, dedup, no secrets.
 
 ### 5.4 Catalog query and filter API
@@ -715,7 +723,8 @@ class CatalogQuery(BaseModel):
 - pagination;
 - no target leakage or PII.
 
-CLI: `whack26 catalog query --kind paper --field ... --year ... --similar-to ...`.
+Proposed CLI (not implemented; catalog queries are library-only today):
+`whack26 catalog query --kind paper --field ... --year ... --similar-to ...`.
 
 Tests: each filter, subtree filter, vector ordering, empty result, pagination,
 deterministic order, performance on 1,000 documents.

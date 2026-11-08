@@ -131,13 +131,23 @@ def fit_sindy(
     except (TypeError, ValueError):
         threshold = 0.1
     threshold = threshold if np.isfinite(threshold) else 0.1
-    model = ps.SINDy(
-        optimizer=ps.STLSQ(threshold=threshold),
-        feature_library=library,
-        differentiation_method=ps.FiniteDifference(),
-        feature_names=names,
-    )
-    model.fit(matrix, t=times)
+    constructor = {
+        "optimizer": ps.STLSQ(threshold=threshold),
+        "feature_library": library,
+        "differentiation_method": ps.FiniteDifference(),
+    }
+    # pysindy 2.1 moved feature_names from the constructor to fit(); support
+    # both layouts so the optional dependency is not pinned to one release.
+    try:
+        model = ps.SINDy(**constructor, feature_names=names)
+    except TypeError:
+        model = ps.SINDy(**constructor)
+        try:
+            model.fit(matrix, t=times, feature_names=names)
+        except TypeError:
+            model.fit(matrix, t=times)
+    else:
+        model.fit(matrix, t=times)
     return SindyFit(
         model=model,
         feature_names=names,

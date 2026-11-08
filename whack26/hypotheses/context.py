@@ -56,6 +56,11 @@ _MAX_RESEARCH_MODELS = 10
 _MAX_MODEL_CANDIDATES = 5
 _MAX_CRITIC_CHUNKS = 8
 _MAX_CHUNK_CHARS = 1_200
+_MAX_FIELD_PITFALLS = 8
+_MAX_FIELD_PITFALL_CHARS = 500
+
+_FIELD_PITFALL_SCOPES = ("leaf", "ancestor")
+_FIELD_PITFALL_APPLICABILITY = ("yes", "unknown", "no")
 
 _RESEARCH_MODEL_FIELDS = (
     "document_id",
@@ -123,6 +128,7 @@ class ContextPack(BaseModel):
     model_candidates: list[ModelCandidate] = Field(default_factory=list)
     screen: dict[str, Any] = Field(default_factory=dict)
     critic_chunks: list[str] = Field(default_factory=list)
+    field_pitfalls: list[dict[str, Any]] = Field(default_factory=list)
     token_estimate: int = 0
 
 
@@ -565,6 +571,87 @@ def _research_models(values: Sequence[Any]) -> list[ResearchModelRef]:
     return models[:_MAX_RESEARCH_MODELS]
 
 
+def _coerce_field_pitfall(value: Any) -> dict[str, Any] | None:
+    """Normalize one pitfall record from a model, mapping, or object.
+
+    Free text is redacted and bounded here so the rendered pack never depends on
+    the caller having sanitized its records.  Records without pitfall text are
+    dropped: they carry no context for the generator.
+    """
+    mapping = _as_mapping(value)
+
+    def attribute(name: str, default: Any = None) -> Any:
+        if name in mapping:
+            return mapping[name]
+        return getattr(value, name, default)
+
+    def text(name: str, *, limit: int = _MAX_FIELD_PITFALL_CHARS) -> str:
+        raw = attribute(name, "")
+        return _clean(None if raw is None else str(raw), limit=limit)
+
+    pitfall = text("pitfall")
+    if not pitfall:
+        return None
+
+    scope = text("scope", limit=40).casefold()
+    if scope not in _FIELD_PITFALL_SCOPES:
+        scope = "ancestor"
+    applies = text("applies_to_dataset", limit=40).casefold()
+    if applies not in _FIELD_PITFALL_APPLICABILITY:
+        applies = "unknown"
+
+    try:
+        field_level = int(float(attribute("field_level", 1)))
+    except (TypeError, ValueError, OverflowError):
+        field_level = 1
+    try:
+        confidence = float(attribute("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    if not math.isfinite(confidence):
+        confidence = 0.0
+
+    return {
+        "id": text("id", limit=120),
+        "field_id": text("field_id", limit=120) or None,
+        "field_name": text("field_name", limit=160),
+        "field_level": field_level,
+        "scope": scope,
+        "category": text("category", limit=40).casefold() or "other",
+        "pitfall": pitfall,
+        "applies_to_dataset": applies,
+        "applicability_reason": text("applicability_reason"),
+        "check": text("check"),
+        "evidence_id": text("evidence_id", limit=160),
+        "source": text("source", limit=160),
+        "url": text("url"),
+        "confidence": round(confidence, 6),
+    }
+
+
+def _field_pitfalls(values: Sequence[Any] | None) -> list[dict[str, Any]]:
+    """Return bounded, leaf-first field pitfalls for the context pack."""
+    records: list[dict[str, Any]] = []
+    for value in values or ():
+        record = _coerce_field_pitfall(value)
+        if record is None or record["applies_to_dataset"] == "no":
+            continue
+        records.append(record)
+    records.sort(
+        key=lambda record: (
+            0 if record["scope"] == "leaf" else 1,
+            -record["field_level"],
+            -record["confidence"],
+            record["id"],
+        )
+    )
+    return records[:_MAX_FIELD_PITFALLS]
+
+
+def _field_pitfall_text(pitfall: Mapping[str, Any], name: str) -> str:
+    return _clean(str(pitfall.get(name) or ""), limit=_MAX_FIELD_PITFALL_CHARS)
+
+
 def _coerce_candidates(
     value: ModelSearchResult | Sequence[ModelCandidate] | None,
 ) -> list[ModelCandidate]:
@@ -644,6 +731,47 @@ def _chunk_payload(value: Any) -> tuple[str, str]:
     if match:
         identifier = match.group(1)
     return identifier, text
+
+
+def _preloaded_statistics_chunks(
+    store: Any,
+    *,
+    dataset_id: str | None,
+    embeddings: Any,
+    limit: int = 3,
+) -> list[str]:
+    """Return summaries from the preloaded statistics/validity catalog.
+
+    The static pitfalls corpus remains the fallback; this adds the layer-1
+    documents that ``preload-statistics`` stored in the catalog.
+    """
+    if store is None or limit <= 0:
+        return []
+    try:
+        from ..research.catalog import CatalogQuery, search_documents
+
+        documents = search_documents(
+            store,
+            CatalogQuery(
+                preloaded=True,
+                credible_only=True,
+                similar_to=dataset_id,
+                limit=limit,
+            ),
+            embeddings=embeddings,
+        )
+    except Exception:  # noqa: BLE001 - preloaded context is advisory
+        return []
+    chunks: list[str] = []
+    for document in documents:
+        summary = _clean(document.summary, limit=_MAX_CHUNK_CHARS)
+        if not summary:
+            continue
+        chunks.append(
+            f"### {document.id} — {_clean(document.title)}\n"
+            f"Statistics corpus document: {summary}"
+        )
+    return chunks
 
 
 def _critic_chunks(
@@ -726,6 +854,40 @@ def _render_pack(pack: ContextPack) -> str:
         blocks.append("## Ancestor documents\n(none)")
 
     blocks.append("## Ancestor statistics\n" + _json(pack.ancestor_stats))
+
+    if pack.field_pitfalls:
+        lines = [
+            "## Field pitfalls",
+            "Context only: `applies=unknown` is not a finding; only `yes` is a "
+            "profile-established precondition.",
+        ]
+        for pitfall in pack.field_pitfalls:
+            identifier = _field_pitfall_text(pitfall, "id") or "(none)"
+            field_name = _field_pitfall_text(pitfall, "field_name") or "(unnamed)"
+            level = pitfall.get("field_level", 1)
+            scope = _field_pitfall_text(pitfall, "scope") or "ancestor"
+            category = _field_pitfall_text(pitfall, "category") or "other"
+            applies = (
+                _field_pitfall_text(pitfall, "applies_to_dataset") or "unknown"
+            )
+            pitfall_text = _field_pitfall_text(pitfall, "pitfall") or "(none)"
+            reason = _field_pitfall_text(pitfall, "applicability_reason")
+            check = _field_pitfall_text(pitfall, "check") or "(none)"
+            evidence = _field_pitfall_text(pitfall, "evidence_id") or "(none)"
+            url = _field_pitfall_text(pitfall, "url")
+            evidence_line = f"  evidence: {evidence}"
+            if url:
+                evidence_line += f" | url: {url}"
+            reason_line = f"  why: {reason}\n" if reason else ""
+            lines.append(
+                f"- [{identifier}] {field_name} | level={level} | scope={scope} | "
+                f"category={category} | applies={applies}\n"
+                f"  pitfall: {pitfall_text}\n"
+                f"{reason_line}"
+                f"  check: {check}\n"
+                f"{evidence_line}"
+            )
+        blocks.append("\n".join(lines))
 
     if pack.factors:
         lines = ["## Factors"]
@@ -834,6 +996,8 @@ def _fit_to_cap(pack: ContextPack, max_chars: int) -> None:
         guard += 1
         if pack.critic_chunks:
             pack.critic_chunks.pop()
+        elif pack.field_pitfalls:
+            pack.field_pitfalls.pop()
         elif pack.model_candidates:
             pack.model_candidates.pop()
         elif pack.research_models:
@@ -884,6 +1048,7 @@ def build_context_pack(
     model_candidate_limit: int = _MAX_MODEL_CANDIDATES,
     path_names: Sequence[str] | None = None,
     ancestor_stats: Mapping[str, Any] | None = None,
+    field_pitfalls: Sequence[Any] = (),
 ) -> ContextPack:
     """Build the bounded, deterministic context pack for the generator.
 
@@ -894,6 +1059,9 @@ def build_context_pack(
 
     ``path_names`` is accepted as a convenience alias for a name-only
     ``field_path``; ``ancestor_stats`` overrides the computed statistics.
+    ``field_pitfalls`` accepts field-scoped records (models, mappings, or
+    objects) and renders the bounded advisory section; missing or invalid
+    records are ignored.
     """
     if field_path is None and path_names is not None:
         field_path = list(path_names)
@@ -1003,6 +1171,22 @@ def build_context_pack(
         computed_stats = {**computed_stats, **dict(ancestor_stats)}
     final_stats = _redact_object(computed_stats)
 
+    context_chunks = _critic_chunks(
+        corpus=corpus,
+        embeddings=embeddings,
+        query=summary,
+        supplied=critic_chunks,
+        how_to_chunk=how_to_chunk,
+        top_k=critic_top_k,
+    )
+    context_chunks.extend(
+        _preloaded_statistics_chunks(
+            store,
+            dataset_id=dataset_id,
+            embeddings=embeddings,
+            limit=3,
+        )
+    )
     pack = ContextPack(
         summary=_clean(summary, limit=_MAX_SUMMARY_CHARS),
         field_path=path_names,
@@ -1014,14 +1198,8 @@ def build_context_pack(
             model_candidates, limit=model_candidate_limit
         ),
         screen=screen_data,
-        critic_chunks=_critic_chunks(
-            corpus=corpus,
-            embeddings=embeddings,
-            query=summary,
-            supplied=critic_chunks,
-            how_to_chunk=how_to_chunk,
-            top_k=critic_top_k,
-        ),
+        critic_chunks=context_chunks,
+        field_pitfalls=_field_pitfalls(field_pitfalls),
     )
     _fit_to_cap(pack, max_chars)
     rendered = render_context_pack(pack, max_chars=max_chars)

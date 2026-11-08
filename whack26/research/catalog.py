@@ -21,11 +21,17 @@ from typing import Any, Sequence
 
 from pydantic import BaseModel, Field
 
-from ..common import redact_secrets
+from ..common import redact_secrets, utc_now_iso
 from ..embeddings import cosine
+from .base import ResearchRecord
 from .scrape.models import Document
 
-__all__ = ["CatalogError", "CatalogQuery", "search_documents"]
+__all__ = [
+    "CatalogError",
+    "CatalogQuery",
+    "catalog_research_records",
+    "search_documents",
+]
 
 _YEAR_RE = re.compile(r"\s*(-?\d{4})")
 
@@ -264,3 +270,101 @@ def search_documents(
         )
     )
     return documents[query.offset : query.offset + query.limit]
+
+
+def _dataset_embedding(store: Any, dataset_id: str | None) -> list[float] | None:
+    if not dataset_id:
+        return None
+    getter = getattr(store, "get_dataset", None)
+    if not callable(getter):
+        return None
+    try:
+        record = getter(dataset_id)
+    except Exception:  # noqa: BLE001 - catalog retrieval is advisory
+        return None
+    if isinstance(record, dict):
+        embedding = record.get("embedding")
+        if isinstance(embedding, list) and embedding:
+            return [float(value) for value in embedding]
+    # A document that has not been promoted into the ``datasets`` table yet
+    # still carries a summary embedding on the document row.
+    document_getter = getattr(store, "get_document", None)
+    if not callable(document_getter):
+        return None
+    try:
+        document = document_getter(dataset_id)
+    except Exception:  # noqa: BLE001
+        return None
+    embedding = getattr(document, "summary_embedding", None)
+    if isinstance(embedding, list) and embedding:
+        return [float(value) for value in embedding]
+    return None
+
+
+def _document_to_record(
+    document: Document,
+    *,
+    reference_embedding: list[float] | None,
+) -> ResearchRecord:
+    similarity = 0.0
+    if reference_embedding and document.summary_embedding:
+        try:
+            similarity = cosine(reference_embedding, document.summary_embedding)
+        except (TypeError, ValueError):
+            similarity = 0.0
+    metadata = document.metadata or {}
+    year = _document_year(document)
+    doi = metadata.get("doi")
+    return ResearchRecord(
+        id=document.id,
+        source="catalog",
+        source_id=document.source_id or document.id,
+        title=document.title,
+        abstract=document.summary or None,
+        authors=list(document.authors),
+        year=year,
+        doi=str(doi) if isinstance(doi, str) and doi.strip() else None,
+        url=document.canonical_url or f"catalog:{document.id}",
+        license=document.license,
+        retrieved_at=utc_now_iso(),
+        query="catalog",
+        relevance=max(0.0, min(1.0, float(similarity))),
+        also_seen_in=[document.source] if document.source else [],
+    )
+
+
+def catalog_research_records(
+    store: Any,
+    *,
+    dataset_id: str | None,
+    embeddings: Any | None = None,
+    limit: int = 10,
+    credible_only: bool = True,
+    min_similarity: float = 0.5,
+) -> list[ResearchRecord]:
+    """Return catalogued papers/datasets related to ``dataset_id``.
+
+    This is the DB-first half of research: callers prepend these records to
+    external API results so a warm catalog is consulted before the network.
+    ``min_similarity`` drops catalog entries that are only weakly related.
+    """
+    if limit <= 0:
+        return []
+    query = CatalogQuery(
+        kinds=["paper", "dataset"],
+        similar_to=dataset_id,
+        credible_only=credible_only,
+        limit=limit,
+    )
+    documents = search_documents(store, query, embeddings=embeddings)
+    reference = _dataset_embedding(store, dataset_id)
+    records = [
+        _document_to_record(document, reference_embedding=reference)
+        for document in documents
+        if document.id != dataset_id
+    ]
+    return [
+        record
+        for record in records
+        if record.relevance >= float(min_similarity)
+    ]

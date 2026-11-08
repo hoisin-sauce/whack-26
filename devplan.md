@@ -1,4 +1,10 @@
-# Development plan
+# Original development plan (historical)
+
+> **Historical note.** This is the original hackathon brief, kept for context.
+> It describes the intended system, not the implemented one. For the current
+> state and commands, use [`README.md`](README.md) and
+> [`docs/spec/README.md`](docs/spec/README.md). The plan below names Postgres /
+> pgvector and some source adapters that were not adopted.
 
 Setup postgres pgvector database
 

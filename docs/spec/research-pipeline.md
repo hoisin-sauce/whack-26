@@ -1,16 +1,26 @@
 # Research, caching, and factor mapping
 
-Status: decided in [ticket #8](https://github.com/hoisin-sauce/whack-26/issues/8). Applies to the 6–8 hour slice.
+Status: implemented in [ticket #8](https://github.com/hoisin-sauce/whack-26/issues/8).
 
 ## Pipeline stages
 
 ```
-ingest -> profile -> classify -> query -> fetch -> normalize -> cache
-      -> deduplicate -> rank -> extract factors -> map factors
-      -> refine classification (once) -> hypotheses -> critic -> artifact
+ingest -> profile -> classify -> catalog lookup -> query -> fetch -> normalize
+      -> cache -> deduplicate -> rank -> optional metrics enrichment
+      -> refine classification (once)
+      -> variants (optional) -> semantic scraping (optional)
+      -> extract factors -> map factors -> screen
+      -> field pitfalls (optional) -> model search (optional)
+      -> research models + context pack -> hypotheses
+      -> generation validation (optional) -> critic -> statistical validation
+      -> final judge (optional) -> artifact + preview
 ```
 
-Research runs **after** the first classification and **before** hypothesis generation. It may refine the field path once.
+Research runs **after** the first classification and **before** hypothesis generation. It may refine the field path once. The pipeline first consults the local document catalog for related papers/datasets, then adds external API results; catalog records are ranked with the same deduplication and relevance logic. `run` records one Search document per query, with result links and an embedding, but catalog queries over the store remain library-only.
+
+An optional field-scoped pitfall stage runs after factor extraction and before hypothesis generation when `--field-pitfalls`, `--full`, or `WHACK26_FIELD_PITFALLS_ENABLED=1` is used. It issues one short query per field (leaf first, up to three), reuses the same adapters and per-dataset cache, and extracts cited limitations for the method critic and hypothesis context pack. It never creates fields, mutates the field store, or blocks a run; see [`field-pitfalls.md`](field-pitfalls.md).
+
+Credibility scoring, pairwise comparisons, and the document method critic run only in the semantic-scraping stage (`--scrape`). Default one-hop research records are not credibility-scored or compared to the dataset.
 
 ## 1. Ingest and profile
 
@@ -40,6 +50,7 @@ class DatasetProfile(BaseModel):
     rows: int
     columns: list[ColumnProfile]
     description: str | None
+    source_site: str | None
     target: TargetChoice | None
     time_column: str | None
     warnings: list[str]
@@ -61,6 +72,7 @@ The summary is compact text, not raw rows:
 ```
 Dataset: <filename>
 Description: <optional user description>
+Source site: <optional source site or URL>
 Rows: <n>; Columns: <n>
 Target: <name> (<dtype>, <n unique>, <missing>)
 Time column: <name or none>
@@ -158,14 +170,20 @@ Keyless. Set a descriptive `User-Agent` with contact information (`whack26-resea
 
 ### Adapter status
 
-Twelve source names are declared in `whack26/research/base.py`. Nine are
+Twelve source names are declared in `whack26/research/base.py`. Nine are always
 registered in `_build_adapters`: `openalex`, `arxiv`, `huggingface`, `zenodo`,
-`wikipedia`, `dataverse`, `openml`, `datagov`, and `datacite`. Three modules are
-implemented and unit-tested but **not registered**: `kaggle`,
-`semantic_scholar`, and `websearch`; a generated query for those sources
-currently yields `unknown_source`. General web search is therefore not part of
-the default run. (Design note: Brave Search lost its free plan in 2026-11;
-Google Programmable Search remains a key-gated option.)
+`wikipedia`, `dataverse`, `openml`, `datagov`, and `datacite`. Three are
+**optional and register only when configured**:
+
+- `kaggle` with `KAGGLE_API_TOKEN` (or `KAGGLE_USERNAME` + `KAGGLE_KEY`);
+- `semantic_scholar` with `S2_API_KEY`;
+- `websearch` with `WEBSEARCH_PROVIDER=google|brave` plus `WEBSEARCH_API_KEY`
+  and, for Google, `WEBSEARCH_CX`.
+
+An unconfigured optional source stays out of the run rather than degrading it;
+a generated query for a source that is not registered yields `unknown_source`.
+General web search is therefore not part of the default run. Brave has no free
+plan as of 2026-11; Google Programmable Search remains the key-gated option.
 
 ## 5. Normalization and deduplication
 
@@ -191,8 +209,27 @@ class ResearchRecord(BaseModel):
     query: str
     relevance: float
     also_seen_in: list[str] = []
+    # Optional bibliometrics. author_ids are source-prefixed, e.g.
+    # "openalex:A5113890882" or "semantic_scholar:1741101".
+    cited_by_count: int | None
+    author_ids: list[str] = []
+    author_h_index: int | None
+    author_citation_count: int | None
+    author_known: bool | None
+    venue_type: str | None
+    publisher: str | None
+    metrics_source: str | None
 ```
 
+- Adapters populate the fields that arrive in their search response. OpenAlex
+  maps `cited_by_count`, `authorships[].author.id`, `primary_location.source.type`,
+  and `primary_location.source.host_organization_name`; Semantic Scholar maps
+  `citationCount`, `authors[].authorId`, and `publicationTypes`.
+- Author-level h-index and citation totals need a second lookup. When
+  `WHACK26_RESEARCH_METRICS_ENABLED=1` and `OPENALEX_API_KEY` is set,
+  `whack26/research/metrics.py` batch-resolves DOIs through `/works` and author
+  IDs through `/authors` after ranking. The pass is cached, offline-safe, and
+  advisory: failures become warnings.
 - Strip HTML and collapse whitespace.
 - Dedup priority: DOI → arXiv ID → OpenAlex ID → HF ID → Zenodo ID → `sha256(normalized title + first author + year)`.
 - Merge duplicates; keep the record with the highest `SOURCE_RANK` for its kind (papers: OpenAlex > arXiv > Semantic Scholar; datasets: Zenodo > Dataverse/OpenML > Hugging Face/Kaggle/data.gov/DataCite; web: Wikipedia > web search). See `whack26/research/base.py` for the exact table.
@@ -279,15 +316,18 @@ If `classification.confidence < 0.62`, or the top five record titles contradict 
 
 ```
 whack26/research/
-  base.py          # protocol, ResearchRecord, SourceError
-  openalex.py
-  arxiv.py
-  huggingface.py
-  zenodo.py
-  wikipedia.py
+  base.py          # protocol, ResearchRecord, SourceError, source priors
+  openalex.py arxiv.py huggingface.py zenodo.py wikipedia.py
+  kaggle.py dataverse.py openml.py datagov.py datacite.py
+  semantic_scholar.py websearch.py
+  metrics.py       # optional key-gated OpenAlex author/citation enrichment
   normalize.py     # abstract reconstruction, HTML strip, dedup, ranking
   cache.py         # SQLite cache
-  pipeline.py      # query -> fetch -> normalize -> rank -> refine
+  catalog.py       # catalog query over stored documents (library-only)
+  search_sessions.py # Search documents and result links
+  to_model.py      # research-to-model extraction
+  pipeline.py      # query -> fetch -> normalize -> rank -> metrics -> refine
+  scrape/          # semantic scraping, credibility, comparisons, preload
 whack26/factors.py # extraction + mapping
 ```
 
@@ -299,3 +339,11 @@ whack26/factors.py # extraction + mapping
 - At least 3 factors and at least one mapped factor for ≥ 8/10 datasets.
 - No secrets, API keys, or PII in logs, cache metadata, or the artifact.
 - Offline mode completes from cache and clearly labels degraded sources.
+
+## Current status
+
+The adapters, cache, ranking, factor mapping, refinement, Search documents, and
+optional metrics enrichment are implemented and tested. The recorded
+two-dataset live smoke is in
+[`docs/eval/research-smoke.md`](../eval/research-smoke.md); the ten-dataset live
+gate is pending provider quota.

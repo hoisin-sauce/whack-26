@@ -1,4 +1,9 @@
-# Gap audit: `devplan.md`
+# Gap audit: `devplan.md` (historical)
+
+> **Historical note.** This audit was written before the implementation. It is
+> kept as a record of how the original brief was turned into the spec. It does
+> not describe the current system; see [`../README.md`](../README.md) and
+> [`spec/README.md`](spec/README.md) for that.
 
 **Bottom line:** it's a strong architecture sketch, not a spec. It names the subsystems and the method menu well, but it is missing the user, the MVP boundary, precise domain language, executable algorithms, data contracts, and any definition of success. A `/to-spec` run today would only restate it.
 

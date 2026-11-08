@@ -24,7 +24,18 @@ class EmbeddingClient(Protocol):
 
 Both return validated Python objects, not raw provider responses. The caller never sees provider-specific JSON.
 
-## Gemini implementation
+## DeepSeek implementation (default LLM)
+
+- Base: `https://api.deepseek.com`
+- Auth: `Authorization: Bearer $DEEPSEEK_API_KEY`
+- LLM: `POST /chat/completions` (OpenAI-compatible)
+- Defaults: `DEEPSEEK_MODEL=deepseek-flash`
+- Every deterministic call sets `temperature=0`, `thinking={"type": "disabled"}`, and `response_format={"type": "json_object"}`.
+- DeepSeek's JSON mode guarantees valid JSON but not a specific shape. The requested JSON Schema is appended to the system message, and callers still validate with Pydantic and retry on schema failure.
+- Timeout: 60 s per LLM call. Retries: 2 on 429/5xx/timeout with 1 s and 4 s backoff.
+- DeepSeek exposes no embeddings endpoint (`POST /embeddings` returns 404), so embeddings stay on Gemini.
+
+## Gemini implementation (embeddings; optional LLM)
 
 - Base: `https://generativelanguage.googleapis.com/v1beta`
 - Auth: `x-goog-api-key: $GEMINI_API_KEY`
@@ -37,17 +48,23 @@ Both return validated Python objects, not raw provider responses. The caller nev
 - Embeddings: L2-normalize on receipt. Batch up to 50 texts; if a batch fails, split it and retry; if a single item fails, retry once, then raise.
 - The free tier is not confidential; never send PII, secrets, or proprietary schemas. The caller must be able to switch providers for private data.
 
-## Cloudflare Workers AI (fallback)
+## Cloudflare Workers AI (documented seam, not implemented)
 
-- OpenAI-compatible base: `https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/v1`
-- Auth: `Authorization: Bearer $CLOUDFLARE_API_TOKEN`
-- LLM: `@cf/openai/gpt-oss-120b`; embeddings: `@cf/baai/bge-m3`.
-- JSON mode is not strict; validate with Pydantic and retry.
-- Untested in this environment (no credentials yet). Treat as a fallback, not the default.
+`WHACK26_LLM_PROVIDER=cloudflare` is parsed and validated, but
+`build_llm_client` raises a clear "not implemented" error. The planned adapter
+would use the OpenAI-compatible base
+`https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/v1`,
+`Authorization: Bearer $CLOUDFLARE_API_TOKEN`, and
+`@cf/openai/gpt-oss-120b` for the LLM. Treat it as an unimplemented fallback,
+not a supported provider.
 
-## Local embeddings (privacy fallback)
+## Local embeddings (documented seam, not implemented)
 
-`model2vec` with `potion-base-8M` (256 dims, no key). If selected, set `WHACK26_EMBED_PROVIDER=local` and `EMBED_DIMS=256`. The field store is dimension-sensitive: a mismatch must fail fast at startup with a clear error and a `--reset-fields` instruction. Do not mix embedding providers within one field store.
+`WHACK26_EMBED_PROVIDER=local` is parsed and validated but
+`build_embedding_client` raises a clear "not implemented" error until
+`model2vec` (`potion-base-8M`, 256 dims, no key) is installed and wired. If it
+lands, `EMBED_DIMS=256` and the field store must not mix embedding providers;
+the store is dimension-sensitive and should fail fast on a mismatch.
 
 ## Mock mode
 
@@ -67,26 +84,27 @@ Both return validated Python objects, not raw provider responses. The caller nev
 
 | Env var | Values | Default |
 |---|---|---|
-| `WHACK26_LLM_PROVIDER` | `gemini`, `cloudflare`, `mock` | `gemini` |
-| `WHACK26_EMBED_PROVIDER` | `gemini`, `local`, `mock` | `gemini` |
+| `WHACK26_LLM_PROVIDER` | `deepseek`, `gemini`, `mock` (Cloudflare parsed but not implemented) | `deepseek` |
+| `WHACK26_EMBED_PROVIDER` | `gemini`, `mock` (local parsed but not implemented) | `gemini` |
+| `DEEPSEEK_MODEL` | model id | `deepseek-flash` |
 | `GEMINI_MODEL` | model id | `gemini-3.6-flash` |
 | `GEMINI_EMBED_MODEL` | model id | `gemini-embedding-2` |
 | `EMBED_DIMS` | int | `768` |
 | `WHACK26_OFFLINE` | `0`, `1` | `0` |
 | `WHACK26_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING` | `INFO` |
 
-`doctor` checks: Python version, installed packages, corpus presence, key presence, Gemini model latency (one tiny call), embedding dimensions, OpenAlex auth, and cache writability. It exits non-zero on a blocking problem and prints a remediation hint.
+`doctor` checks: Python version, installed packages, corpus presence, key presence, LLM latency (one tiny call), embedding dimensions, OpenAlex auth, and cache writability. It exits non-zero on a blocking problem and prints a remediation hint.
 
 ## Logging and privacy
 
-- Log latency, token counts, provider, model, and status. Do not log prompts or responses by default (`WHACK26_LOG_PROMPTS=0`).
+- Log latency, token counts, provider, model, and status. Do not log prompts or responses; there is no prompt-logging switch in the current config.
 - Never write API keys to the artifact, cache metadata, logs, or error messages.
-- Redact `Authorization`, `x-goog-api-key`, and `api_key` query values from exception text.
+- Redact `Authorization` (including the DeepSeek bearer token), `x-goog-api-key`, and `api_key` query values from exception text.
 - The artifact stores model ids and provider names, not credentials.
 
 ## Failure behavior
 
-- LLM unavailable: retry; if still unavailable, the pipeline fails with a typed error and a hint to use `--mock` or Cloudflare. Do not silently produce a partial artifact.
+- LLM unavailable: retry; if still unavailable, the pipeline fails with a typed error and a hint to use `--mock` or another provider. Do not silently produce a partial artifact.
 - Embedding unavailable: same, except the classifier can fall back to the local provider if configured.
 - A single schema failure: retry once; a second failure is fatal for that step.
 - All errors include the purpose (`classification`, `queries`, `factors`, `hypothesis:<family>`, `critic:<hyp_id>`) so the run log identifies the stage.

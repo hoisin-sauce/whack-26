@@ -8,6 +8,8 @@ import pytest
 from whack26.model_search import sindy, trees
 from whack26.model_search.types import ModelSpec
 
+pytestmark = pytest.mark.optional
+
 
 def test_sklearn_backend_reports_availability() -> None:
     status = trees.tree_backend_status()
@@ -19,9 +21,8 @@ def test_sklearn_backend_reports_availability() -> None:
         assert status["reason"]
 
 
-def test_tree_backend_skips_when_sklearn_is_missing() -> None:
-    if trees.sklearn_available():
-        pytest.skip("scikit-learn is installed")
+def test_tree_backend_skips_when_sklearn_is_missing(monkeypatch) -> None:
+    monkeypatch.setattr(trees, "SKLEARN_AVAILABLE", False)
 
     spec = ModelSpec(family="tree", features=["x1", "x2"])
     X = np.arange(20, dtype=float).reshape(10, 2)
@@ -71,9 +72,8 @@ def test_pysindy_backend_reports_availability() -> None:
         assert status["reason"]
 
 
-def test_sindy_backend_skips_when_pysindy_is_missing() -> None:
-    if sindy.pysindy_available():
-        pytest.skip("pysindy is installed")
+def test_sindy_backend_skips_when_pysindy_is_missing(monkeypatch) -> None:
+    monkeypatch.setattr(sindy, "PYSINDY_AVAILABLE", False)
 
     spec = ModelSpec(family="sindy", features=["x"])
     X = np.linspace(0.0, 1.0, 20).reshape(-1, 1)
