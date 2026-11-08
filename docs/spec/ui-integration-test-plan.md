@@ -1,12 +1,8 @@
 # UI-to-system integration test plan
 
-Status: **implemented**. Every test slice in this plan exists. The latest full
-run on 2026-11-08 collected **1496 tests** and reported **1476 passed, 18
-xfailed, 1 xpassed, 1 teardown error (768.57s)**. The teardown error is
-order-dependent in
-`test_ui80_model_search_shows_selected_model_table`; the whole
-`tests/test_ui_optional_stages.py` file passes in isolation (`4 passed, 2
-xfailed`).
+Status: **implemented and green**. Every test slice in this plan exists. The
+latest full run on 2026-11-08 collected **1,506 tests** and reported **1,488
+passed, 18 xfailed, 0 failed (638.06s)**.
 
 - New modules: `tests/test_ui_widgets.py`, `tests/test_ui_dataset.py`,
   `tests/test_ui_validation.py`, `tests/test_ui_report.py`,
@@ -28,7 +24,7 @@ passes:
 - 5 async legacy-validation tests (UI-90, UI-91, UI-93, UI-94, UI-95):
   `DatasetWorkspace.run_validation` is still synchronous. The new
   `start_pipeline` path already runs the full pipeline in a background thread
-  with streamed progress, busy state, and failure handling; UI-92 now xpasses
+  with streamed progress, busy state, and failure handling; UI-92 now passes
   because closing a tab mid-pipeline is safe.
 - 2 pandas 3 `StringDtype` tests (UI-14/UI-19): `np.issubdtype` raises
   `TypeError` for text columns in `_prepare_arrays`; use
@@ -804,7 +800,7 @@ Report back exactly:
 | SA-1 to SA-4 | 20 min | Parallel; bounded by SA-3 |
 | SA-5, SA-7 | 20 min | Parallel after dependencies merge |
 | SA-6 | 15 min | Serial on SA-5 |
-| SA-8 full suite | 30 min | One run plus targeted rechecks |
+| SA-8 full suite | 15 min | One run plus targeted rechecks (latest full run: 10m38s) |
 | Buffer | 20 min | Cross-slice failures and rebases |
 
 Expected wall clock is roughly 90 minutes with four concurrent workers, versus
@@ -883,9 +879,7 @@ run the plan allows.
 
 Do not run the full suite after every merge. Batch the merges, run once, fix the
 owned failures, run once more. The second full run is the release gate. The
-current full run takes about 13 minutes; if the optional-stage teardown flake
-appears, rerun `tests/test_ui_optional_stages.py` in isolation before treating
-it as a product failure.
+current full run takes about 11 minutes (638.06s in the latest run).
 
 Manual live smoke (never in CI, after the full suite is green):
 
@@ -923,9 +917,8 @@ only one subagent pays the mock-pipeline setup cost.
   full suite was not run.
 - The merged integration branch passes `pytest --collect-only -q`.
 - The merged integration branch passes **one** full `pytest -q` run with the UI
-  extra installed and `QT_QPA_PLATFORM=offscreen`, apart from the documented
-  order-dependent optional-stage teardown flake; run that file in isolation to
-  confirm.
+  extra installed and `QT_QPA_PLATFORM=offscreen` (latest: 1,488 passed, 18
+  xfailed, 0 failed).
 - In an environment without PyQt6, the same full run is green and every UI test
   skips with a clear reason.
 - Every test ID in section 0 and sections A-I is owned by exactly one
@@ -937,7 +930,7 @@ only one subagent pays the mock-pipeline setup cost.
 - `schemas/artifact.schema.json` includes `final_judge` and matches the model.
 - No automated test requires a network connection, API key, or provider quota.
 - Each targeted slice completes in under a minute; the full suite currently
-  takes about 13 minutes on the development machine (768.57s in the latest
+  takes about 11 minutes on the development machine (638.06s in the latest
   run).
 - A live smoke run is recorded separately and is not a CI gate.
 

@@ -480,11 +480,10 @@ predictions exactly.
 The core pipeline, semantic scraping, statistical validation, model search,
 variants, generation validation, field-scoped pitfalls, the hierarchy package,
 the final judge, and the optional PyQt6 dashboard are implemented and tested.
-The latest full suite reported **1,476 passed and 18 documented xfails**, plus
-one order-dependent teardown error in the optional-stage UI file (the file
-passes in isolation; see
-[`docs/spec/ui-integration-test-plan.md`](docs/spec/ui-integration-test-plan.md)).
-Scraped documents use hierarchy placement by
+The latest full suite collected **1,506 tests** and reported **1,488 passed and
+18 documented xfails**, with no failures (638.06s). See
+[`docs/spec/ui-integration-test-plan.md`](docs/spec/ui-integration-test-plan.md)
+for the xfail inventory. Scraped documents use hierarchy placement by
 default; `--variants` evaluates every generated hypothesis on the original,
 anonymized, and jumbled frames; `run --judge` writes all four judge reports and
 embeds the advisory decision in the artifact.
