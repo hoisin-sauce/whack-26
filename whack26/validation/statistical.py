@@ -40,10 +40,13 @@ HIGHER_IS_BETTER: dict[str, bool] = {
     "r2": True,
     "accuracy": True,
     "balanced_accuracy": True,
+    "macro_f1": True,
+    "mcc": True,
     "auc": True,
     "rmse": False,
     "mae": False,
     "log_loss": False,
+    "brier": False,
     "poisson_deviance": False,
     "aic": False,
     "bic": False,
@@ -163,7 +166,7 @@ class ValidationContext:
     margin: float = 0.0
     max_p: float = 0.05
     n_permutations: int = 500
-    predictions: Sequence[float] | None = None
+    predictions: Sequence[float] | Sequence[Sequence[float]] | None = None
     actuals: Sequence[float] | None = None
     target_values: Sequence[float] | None = None
     return_series: bool | None = None
@@ -316,15 +319,49 @@ def _mean(values: Sequence[float]) -> float:
 def metric_value(
     metric: str,
     actuals: Sequence[float] | np.ndarray,
-    predictions: Sequence[float] | np.ndarray,
+    predictions: Sequence[float] | Sequence[Sequence[float]] | np.ndarray,
 ) -> float:
-    """Compute one supported metric from predictions, or ``nan``."""
-    y_true = np.asarray(actuals, dtype=float).ravel()
-    y_pred = np.asarray(predictions, dtype=float).ravel()
-    if y_true.shape != y_pred.shape or y_true.size == 0:
+    """Compute one supported metric from predictions, or ``nan``.
+
+    ``predictions`` may be a 1-D vector or an ``(n, n_classes)`` probability
+    matrix. Multiclass ``actuals`` are the class codes (integer labels); the
+    sorted distinct values select the matrix column order, matching
+    :mod:`whack26.model_search.metrics`.
+
+    Binary metrics keep their historical 1-D behavior: probabilities are
+    thresholded at ``0.5`` for accuracy and balanced accuracy, and
+    ``log_loss`` treats the actuals as positive-class probabilities. Metrics
+    that are undefined for the supplied shape return ``nan`` instead of
+    raising.
+    """
+    y_true = np.asarray(actuals, dtype=float)
+    y_pred = np.asarray(predictions, dtype=float)
+    if y_true.ndim > 1:
+        y_true = y_true.ravel()
+    if y_true.size == 0 or y_pred.size == 0:
         return float("nan")
-    if not np.all(np.isfinite(y_true)) or not np.all(np.isfinite(y_pred)):
+    if not np.all(np.isfinite(y_true)):
         return float("nan")
+    if y_pred.ndim == 2:
+        if y_pred.shape[0] != y_true.size or y_pred.shape[1] < 2:
+            return float("nan")
+        if not np.all(np.isfinite(y_pred)):
+            return float("nan")
+        return _metric_value_matrix(metric, y_true, y_pred)
+    if y_pred.ndim != 1 or y_pred.shape != y_true.shape:
+        return float("nan")
+    if not np.all(np.isfinite(y_pred)):
+        return float("nan")
+    return _metric_value_vector(metric, y_true, y_pred)
+
+
+def _integer_like(values: np.ndarray, *, atol: float = 1e-9) -> bool:
+    return bool(np.all(np.abs(values - np.round(values)) <= atol))
+
+
+def _metric_value_vector(
+    metric: str, y_true: np.ndarray, y_pred: np.ndarray
+) -> float:
     if metric == "r2":
         total = float(np.sum((y_true - np.mean(y_true)) ** 2))
         if total == 0.0:
@@ -335,26 +372,6 @@ def metric_value(
         return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
     if metric == "mae":
         return float(np.mean(np.abs(y_true - y_pred)))
-    if metric == "accuracy":
-        labels = (y_pred >= 0.5).astype(float)
-        truth = (y_true >= 0.5).astype(float)
-        return float(np.mean(labels == truth))
-    if metric == "balanced_accuracy":
-        truth = (y_true >= 0.5).astype(bool)
-        labels = (y_pred >= 0.5).astype(bool)
-        recalls = []
-        for value in (False, True):
-            mask = truth == value
-            if mask.any():
-                recalls.append(float(np.mean(labels[mask] == value)))
-        return float(np.mean(recalls)) if recalls else float("nan")
-    if metric == "auc":
-        return _auc(y_true, y_pred)
-    if metric == "log_loss":
-        clipped = np.clip(y_pred, 1e-15, 1.0 - 1e-15)
-        return float(
-            -np.mean(y_true * np.log(clipped) + (1.0 - y_true) * np.log(1.0 - clipped))
-        )
     if metric == "poisson_deviance":
         if np.any(y_true < 0.0) or np.any(y_pred <= 0.0):
             return float("nan")
@@ -365,7 +382,152 @@ def metric_value(
                 y_true * np.log(y_true / y_pred) - (y_true - y_pred),
             )
         return float(2.0 * np.mean(terms))
+
+    classes = np.unique(y_true)
+    multiclass = classes.size > 2
+    if metric == "accuracy":
+        if multiclass:
+            if not _integer_like(y_pred):
+                return float("nan")
+            return float(np.mean(y_pred == y_true))
+        labels = (y_pred >= 0.5).astype(float)
+        truth = (y_true >= 0.5).astype(float)
+        return float(np.mean(labels == truth))
+    if metric == "balanced_accuracy":
+        if multiclass:
+            if not _integer_like(y_pred):
+                return float("nan")
+            recalls = [
+                float(np.mean(y_pred[y_true == label] == label))
+                for label in classes
+            ]
+            return float(np.mean(recalls)) if recalls else float("nan")
+        truth = (y_true >= 0.5).astype(bool)
+        labels = (y_pred >= 0.5).astype(bool)
+        recalls = []
+        for value in (False, True):
+            mask = truth == value
+            if mask.any():
+                recalls.append(float(np.mean(labels[mask] == value)))
+        return float(np.mean(recalls)) if recalls else float("nan")
+    if metric in {"macro_f1", "mcc"}:
+        labels = _labels_from_vector(y_true, y_pred)
+        if labels is None:
+            return float("nan")
+        if metric == "macro_f1":
+            return _macro_f1(y_true, labels)
+        return _mcc(y_true, labels)
+    if metric == "auc":
+        if multiclass:
+            return float("nan")
+        return _auc(y_true, y_pred)
+    if metric == "brier":
+        if multiclass or classes.size != 2:
+            return float("nan")
+        outcome = (y_true == classes[-1]).astype(float)
+        return float(np.mean((y_pred - outcome) ** 2))
+    if metric == "log_loss":
+        if multiclass:
+            return float("nan")
+        clipped = np.clip(y_pred, 1e-15, 1.0 - 1e-15)
+        return float(
+            -np.mean(y_true * np.log(clipped) + (1.0 - y_true) * np.log(1.0 - clipped))
+        )
     return float("nan")
+
+
+def _metric_value_matrix(
+    metric: str, y_true: np.ndarray, probabilities: np.ndarray
+) -> float:
+    classes = np.unique(y_true)
+    if classes.size < 2 or classes.size != probabilities.shape[1]:
+        return float("nan")
+    codes = np.searchsorted(classes, y_true)
+    if metric == "log_loss":
+        clipped = np.clip(probabilities[np.arange(y_true.size), codes], 1e-15, 1.0)
+        return float(-np.mean(np.log(clipped)))
+    if metric == "brier":
+        if classes.size == 2:
+            outcome = (codes == 1).astype(float)
+            return float(np.mean((probabilities[:, 1] - outcome) ** 2))
+        one_hot = np.eye(classes.size)[codes]
+        return float(np.mean(np.sum((probabilities - one_hot) ** 2, axis=1)))
+
+    predicted = classes[np.argmax(probabilities, axis=1)]
+    if metric == "accuracy":
+        return float(np.mean(predicted == y_true))
+    if metric == "balanced_accuracy":
+        recalls = [
+            float(np.mean(predicted[y_true == label] == label))
+            for label in classes
+        ]
+        return float(np.mean(recalls)) if recalls else float("nan")
+    if metric == "macro_f1":
+        return _macro_f1(y_true, predicted)
+    if metric == "mcc":
+        return _mcc(y_true, predicted)
+    if metric == "auc":
+        return _auc_ovr_macro(y_true, probabilities)
+    return float("nan")
+
+
+def _labels_from_vector(
+    y_true: np.ndarray, y_pred: np.ndarray
+) -> np.ndarray | None:
+    """Resolve hard labels from a 1-D prediction vector.
+
+    Binary vectors are assumed to be positive-class probabilities and are
+    thresholded at ``0.5``. Three or more classes require integer class
+    codes, because a single vector cannot carry one probability per class.
+    """
+    classes = np.unique(y_true)
+    if classes.size < 2:
+        return None
+    if classes.size > 2:
+        if not _integer_like(y_pred):
+            return None
+        return y_pred
+    return np.where(y_pred >= 0.5, classes[-1], classes[0])
+
+
+def _macro_f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    classes = np.unique(y_true)
+    scores: list[float] = []
+    for label in classes:
+        true_positive = float(np.sum((y_pred == label) & (y_true == label)))
+        false_positive = float(np.sum((y_pred == label) & (y_true != label)))
+        false_negative = float(np.sum((y_pred != label) & (y_true == label)))
+        denominator = 2.0 * true_positive + false_positive + false_negative
+        scores.append(2.0 * true_positive / denominator if denominator else 0.0)
+    return float(np.mean(scores)) if scores else float("nan")
+
+
+def _mcc(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    classes = np.unique(y_true)
+    if classes.size < 2:
+        return float("nan")
+    lookup = {float(label): index for index, label in enumerate(classes)}
+    true_codes = np.searchsorted(classes, y_true)
+    pred_codes = np.asarray(
+        [lookup.get(float(label), -1) for label in y_pred], dtype=int
+    )
+    size = int(classes.size)
+    matrix = np.zeros((size, size), dtype=float)
+    for true_code, pred_code in zip(true_codes, pred_codes):
+        if pred_code >= 0:
+            matrix[true_code, pred_code] += 1.0
+    total = float(y_true.size)
+    true_totals = matrix.sum(axis=1)
+    pred_totals = matrix.sum(axis=0)
+    correct = float(np.trace(matrix))
+    numerator = correct * total - float(np.sum(true_totals * pred_totals))
+    denominator = math.sqrt(
+        max(total**2 - float(np.sum(pred_totals**2)), 0.0)
+        * max(total**2 - float(np.sum(true_totals**2)), 0.0)
+    )
+    if denominator == 0.0:
+        return 0.0
+    return float(numerator / denominator)
 
 
 def _auc(y_true: np.ndarray, scores: np.ndarray) -> float:
@@ -383,6 +545,42 @@ def _auc(y_true: np.ndarray, scores: np.ndarray) -> float:
     )
 
 
+def _rank_auc(scores: np.ndarray, positive: np.ndarray) -> float:
+    """Tie-aware ROC AUC used by the one-vs-rest multiclass path."""
+    values = np.asarray(scores, dtype=float).ravel()
+    truth = np.asarray(positive, dtype=bool).ravel()
+    if values.shape != truth.shape or values.size == 0:
+        return float("nan")
+    n_positive = int(truth.sum())
+    n_negative = int(truth.size - n_positive)
+    if n_positive == 0 or n_negative == 0:
+        return float("nan")
+    order = np.argsort(values, kind="mergesort")
+    sorted_values = values[order]
+    ranks = np.empty(values.size, dtype=float)
+    start = 0
+    while start < sorted_values.size:
+        stop = start + 1
+        while stop < sorted_values.size and sorted_values[stop] == sorted_values[start]:
+            stop += 1
+        ranks[order[start:stop]] = (start + 1 + stop) / 2.0
+        start = stop
+    statistic = float(ranks[truth].sum()) - n_positive * (n_positive + 1) / 2.0
+    return float(statistic / (n_positive * n_negative))
+
+
+def _auc_ovr_macro(y_true: np.ndarray, probabilities: np.ndarray) -> float:
+    classes = np.unique(y_true)
+    if classes.size < 2 or classes.size != probabilities.shape[1]:
+        return float("nan")
+    scores: list[float] = []
+    for index, label in enumerate(classes):
+        value = _rank_auc(probabilities[:, index], y_true == label)
+        if _finite(value):
+            scores.append(value)
+    return float(np.mean(scores)) if scores else float("nan")
+
+
 def _metric_supported_for_permutation(metric: str) -> bool:
     return metric in {
         "r2",
@@ -390,10 +588,153 @@ def _metric_supported_for_permutation(metric: str) -> bool:
         "mae",
         "accuracy",
         "balanced_accuracy",
+        "macro_f1",
+        "mcc",
         "auc",
         "log_loss",
+        "brier",
         "poisson_deviance",
     }
+
+
+def expected_calibration_error(
+    probabilities: Sequence[Any] | np.ndarray,
+    actuals: Sequence[Any] | np.ndarray,
+    n_bins: int = 10,
+) -> float:
+    """Expected calibration error over equally spaced confidence bins.
+
+    Binary inputs may be a 1-D vector of positive-class probabilities.
+    Multiclass inputs must be an ``(n, n_classes)`` matrix; the top-label
+    confidence is used. Returns ``nan`` when the inputs cannot be interpreted
+    as probabilistic classification predictions.
+    """
+    bins = int(n_bins)
+    if bins < 2:
+        return float("nan")
+    probs = np.asarray(probabilities, dtype=float)
+    truth = np.asarray(actuals, dtype=float).ravel()
+    if truth.size == 0 or not np.all(np.isfinite(truth)):
+        return float("nan")
+    classes = np.unique(truth)
+    if classes.size < 2:
+        return float("nan")
+    codes = np.searchsorted(classes, truth)
+    if probs.ndim == 1:
+        if classes.size != 2 or probs.size != truth.size:
+            return float("nan")
+        if not np.all(np.isfinite(probs)):
+            return float("nan")
+        predicted_codes = (probs >= 0.5).astype(int)
+        confidence = np.maximum(probs, 1.0 - probs)
+    elif probs.ndim == 2:
+        if probs.shape != (truth.size, classes.size):
+            return float("nan")
+        if not np.all(np.isfinite(probs)):
+            return float("nan")
+        predicted_codes = np.argmax(probs, axis=1)
+        confidence = np.max(probs, axis=1)
+    else:
+        return float("nan")
+    correct = (predicted_codes == codes).astype(float)
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    ece = 0.0
+    total = float(truth.size)
+    for index in range(bins):
+        lower, upper = edges[index], edges[index + 1]
+        if index == bins - 1:
+            mask = (confidence >= lower) & (confidence <= upper)
+        else:
+            mask = (confidence >= lower) & (confidence < upper)
+        if np.any(mask):
+            accuracy = float(np.mean(correct[mask]))
+            mean_confidence = float(np.mean(confidence[mask]))
+            ece += float(np.sum(mask)) / total * abs(accuracy - mean_confidence)
+    return float(ece) if _finite(ece) else float("nan")
+
+
+def pearson_dispersion(
+    predictions: Sequence[float] | np.ndarray,
+    actuals: Sequence[float] | np.ndarray,
+    *,
+    n_params: int = 1,
+) -> float:
+    """Pearson chi-square dispersion estimate for count predictions.
+
+    Values near ``1.0`` are consistent with Poisson variance; materially
+    larger values indicate overdispersion. Returns ``nan`` when the inputs
+    are not valid non-negative counts with positive fitted means.
+    """
+    preds = np.asarray(predictions, dtype=float).ravel()
+    acts = np.asarray(actuals, dtype=float).ravel()
+    if preds.size != acts.size or preds.size == 0:
+        return float("nan")
+    if not np.all(np.isfinite(preds)) or not np.all(np.isfinite(acts)):
+        return float("nan")
+    if np.any(acts < 0.0) or np.any(preds <= 0.0):
+        return float("nan")
+    degrees = acts.size - int(n_params)
+    if degrees <= 0:
+        return float("nan")
+    statistic = float(np.sum((acts - preds) ** 2 / preds))
+    return float(statistic / degrees) if _finite(statistic) else float("nan")
+
+
+def _target_diagnostics(
+    target_kind: str | None,
+    actuals: Sequence[Any] | None,
+    predictions: Sequence[Any] | None,
+) -> tuple[list[Diagnostic], list[str]]:
+    """Build calibration/dispersion diagnostics that never fail a result.
+
+    Diagnostics are only added when the raw predictions and actuals are
+    available and interpretable. Unavailable diagnostics produce a warning,
+    not a failure.
+    """
+    kind = (target_kind or "").lower()
+    if actuals is None or predictions is None:
+        return [], []
+    diagnostics: list[Diagnostic] = []
+    warnings: list[str] = []
+    if kind in {"binary", "multiclass"}:
+        try:
+            ece = expected_calibration_error(predictions, actuals)
+        except (TypeError, ValueError):
+            ece = float("nan")
+        if _finite(ece):
+            diagnostics.append(
+                Diagnostic(
+                    name="expected_calibration_error",
+                    status="warn" if ece > 0.1 else "ok",
+                    value=float(ece),
+                    message=f"ECE={ece:.3f}",
+                )
+            )
+        else:
+            warnings.append(
+                "expected_calibration_error_unavailable: probabilistic "
+                "classification predictions are required"
+            )
+    elif kind == "count":
+        try:
+            dispersion = pearson_dispersion(predictions, actuals)
+        except (TypeError, ValueError):
+            dispersion = float("nan")
+        if _finite(dispersion):
+            diagnostics.append(
+                Diagnostic(
+                    name="pearson_dispersion",
+                    status="warn" if dispersion > 1.5 else "ok",
+                    value=float(dispersion),
+                    message=f"Pearson dispersion={dispersion:.3f}",
+                )
+            )
+        else:
+            warnings.append(
+                "pearson_dispersion_unavailable: non-negative counts and "
+                "positive predicted means are required"
+            )
+    return diagnostics, warnings
 
 
 def _fold_scores(selected: Any, metric: str) -> list[float]:
@@ -475,15 +816,19 @@ def _pooled_permutation_p(
 def _raw_permutation_p(
     metric: str,
     actuals: Sequence[float],
-    predictions: Sequence[float],
+    predictions: Sequence[float] | Sequence[Sequence[float]] | np.ndarray,
     *,
     seed: int,
     n_permutations: int,
 ) -> float:
     if not _metric_supported_for_permutation(metric):
         return float("nan")
-    y_true = np.asarray(actuals, dtype=float).ravel()
-    y_pred = np.asarray(predictions, dtype=float).ravel()
+    y_true = np.asarray(actuals, dtype=float)
+    y_pred = np.asarray(predictions, dtype=float)
+    if y_true.ndim > 1:
+        y_true = y_true.ravel()
+    if y_pred.ndim != 2:
+        y_pred = y_pred.ravel()
     observed = metric_value(metric, y_true, y_pred)
     if not _finite(observed):
         return float("nan")
@@ -807,6 +1152,11 @@ def validate_in_slice(context: ValidationContext) -> StatisticalValidationResult
         )
 
     diagnostics = list(selected.diagnostics)
+    data_diagnostics, diagnostic_warnings = _target_diagnostics(
+        target_kind, context.actuals, context.predictions
+    )
+    diagnostics.extend(data_diagnostics)
+    warnings.extend(diagnostic_warnings)
     failing = [
         item
         for item in diagnostics

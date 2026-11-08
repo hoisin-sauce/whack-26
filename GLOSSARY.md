@@ -148,6 +148,14 @@ _Avoid_: Critic verdict, performance score
 The engine selected for a validation target: `auto`, `in_slice`, `stats_engine`, `external`, or `none`. `in_slice` is the default for general regression, classification, and count data; `stats_engine` is reserved for continuous, return-like series; `external` delegates to a configured validator. When no backend supports the data the verdict is `insufficient`, not `failed`.
 _Avoid_: Validator, engine (unqualified)
 
+**Expected calibration error (ECE)**:
+The weighted gap between predicted confidence and observed accuracy across probability bins. It is reported for classification validation and can gate a run with `max_ece`.
+_Avoid_: Calibration score
+
+**Dispersion**:
+The ratio of observed variance to the mean for a count target (Pearson dispersion). Values above 1 indicate overdispersion; count validation reports it and can gate a run with `max_dispersion`.
+_Avoid_: Variance
+
 **Artifact**:
 The versioned JSON handoff plus Markdown preview, containing the dataset profile, field path, research records, factors, hypotheses, execution results, critic verdict, and the optional validation, model-search, variant, research-model, collection, and hierarchy sections.
 _Avoid_: Report, output file

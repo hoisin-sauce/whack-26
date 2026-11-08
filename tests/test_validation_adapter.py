@@ -76,14 +76,15 @@ def test_missing_rows_are_dropped_and_reported() -> None:
     assert 1 not in matrix.retained_index
 
 
-def test_binary_and_constant_targets_are_skipped() -> None:
+def test_binary_target_is_encoded_and_constant_is_skipped() -> None:
     frame = make_frame()
     frame["binary"] = (frame["y"] > 0).astype(float)
     frame["constant"] = 1.0
 
-    with pytest.raises(AdapterSkip) as binary:
-        build_feature_matrix(frame, target="binary", required_columns=["x"])
-    assert binary.value.reason == "target_contract"
+    matrix = build_feature_matrix(frame, target="binary", required_columns=["x"])
+    assert matrix.target_kind == "binary"
+    assert matrix.target_labels == {0: 0.0, 1: 1.0}
+    assert set(matrix.y.tolist()) == {0.0, 1.0}
 
     with pytest.raises(AdapterSkip) as constant:
         build_feature_matrix(frame, target="constant", required_columns=["x"])

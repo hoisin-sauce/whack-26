@@ -8,6 +8,7 @@ engine in ``stats_engine.py`` found.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -49,6 +50,8 @@ class ValidationConfig:
     seed: int = 0
     max_features: int = 10
     max_categories: int = 20
+    max_ece: float | None = None
+    max_dispersion: float | None = None
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.min_dsr <= 1.0:
@@ -63,6 +66,12 @@ class ValidationConfig:
             raise ValueError("sensitivity_range must be positive")
         if self.max_performance_drop < 0.0:
             raise ValueError("max_performance_drop must be non-negative")
+        if self.max_ece is not None and not 0.0 < self.max_ece <= 1.0:
+            raise ValueError("max_ece must be between 0 and 1")
+        if self.max_dispersion is not None and not (
+            math.isfinite(self.max_dispersion) and self.max_dispersion >= 0.0
+        ):
+            raise ValueError("max_dispersion must be non-negative")
         if self.timeout_seconds <= 0.0:
             raise ValueError("timeout_seconds must be positive")
         if self.max_features < 1:
@@ -89,6 +98,27 @@ class ValidationConfig:
             params["max_decay_tolerance"] = self.max_decay_tolerance
         return params
 
+    def engine_options(self) -> dict[str, Any]:
+        """Return keyword options for ``stats_engine.validate_model``.
+
+        These are engine thresholds, not model hyperparameters. The
+        calibration and dispersion gates live here rather than in
+        :meth:`engine_params` so parameter-sensitivity testing never
+        perturbs a validation threshold.
+        """
+        return {
+            "min_dsr_limit": self.min_dsr,
+            "max_p_value": self.max_p,
+            "train_split_ratio": self.train_split_ratio,
+            "num_permutations": self.num_permutations,
+            "sensitivity_range": self.sensitivity_range,
+            "max_performance_drop": self.max_performance_drop,
+            "max_decay_tolerance": self.max_decay_tolerance,
+            "max_ece": self.max_ece,
+            "max_dispersion": self.max_dispersion,
+            "permutation_seed": self.seed,
+        }
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "min_dsr": self.min_dsr,
@@ -97,6 +127,8 @@ class ValidationConfig:
             "num_permutations": self.num_permutations,
             "sensitivity_range": self.sensitivity_range,
             "max_performance_drop": self.max_performance_drop,
+            "max_ece": self.max_ece,
+            "max_dispersion": self.max_dispersion,
             "max_decay_tolerance": self.max_decay_tolerance,
             "periods_per_year": self.periods_per_year,
             "timeout_seconds": self.timeout_seconds,

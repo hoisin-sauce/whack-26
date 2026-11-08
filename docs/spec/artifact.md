@@ -319,6 +319,13 @@ the saved predictions and are marked `in_sample_fallback: true`. The
 artifact. The statistical-tests owner can rerun the engine independently and
 write results outside this artifact.
 
+Validation is target-aware. Continuous, return-like series use the four-layer
+strategy engine. Binary, multiclass, and count targets use
+`stats_engine.validate_model` with log loss or Poisson deviance, optional
+calibration (`max_ece`) and dispersion (`max_dispersion`) diagnostics, and the
+generated module's `PARAMETERS` for Layer 4. Classification and count reports
+are `partial` because Layer 1 (DSR) is not applicable to them.
+
 **Report owner** reads `artifact.json` and `preview.md`, plus the statistical owner's results. They own the final report.
 
 **Independent validator** reads the artifact to know the method and sources, but writes its own validation record. The critic verdict is advisory input, never a validation.

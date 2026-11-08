@@ -29,31 +29,57 @@ Modules without `_fit`/`_predict` still validate from their saved
 
 ## Target contract
 
-The engine supports continuous, return-like targets only. The runner pre-checks:
+The validator selects a path by target kind:
 
-- numeric dtype (not bool, object, category, or string);
-- at least 20 finite rows;
-- at least 3 distinct values;
-- non-zero variance;
-- not a small integer-coded category set.
+| Target kind | Engine | Primary metric |
+|---|---|---|
+| `continuous`, `time_series` | four-layer `validation_engine` (return-like series) | R² |
+| `binary` | `stats_engine.validate_model` | log loss (AUC and accuracy also reported) |
+| `multiclass` | `stats_engine.validate_model` | log loss (macro F1 and one-vs-rest AUC also reported) |
+| `count` | `stats_engine.validate_model` | Poisson deviance (Pearson dispersion also reported) |
 
-Failures become `skipped: target_contract`. The engine itself would return
-`failed_layer: "Target contract"`; the runner translates that to a skip so
-unsupported targets do not look like model failures.
+The adapter accepts numeric, boolean, and string class labels and encodes them
+to stable integer codes; the report maps those codes back to the original
+labels. Count targets must be non-negative integers. Constant targets, fewer
+than 20 finite rows, or fewer than two classes become
+`skipped: target_contract`.
+
+Kind inference is deliberately simple: two distinct values are binary,
+3–10 non-numeric values are multiclass, and non-negative integers are count
+when they have 11+ levels or a count-like name. Otherwise the column is
+continuous, where the existing small-integer-category guard may still skip it.
+Continuous targets drop rows with missing target values; classification and
+count targets require a complete target column.
+
+The generated module's positive `PARAMETERS` are passed to the engine, so
+Layer 4 can perturb real hyperparameters on the non-continuous path too.
+Classification and count runs therefore report **`partial`** rather than
+`passed`: Layer 1 (DSR) is return-series-only and is reported as
+`not_applicable`, which the status mapping treats like a skip. This mirrors the
+existing zero-parameter continuous behavior.
+
+The `stats_engine` statistical backend remains reserved for continuous,
+return-like series. General regression, classification, and count targets use
+the in-slice backend or the new engine path; they never fall back to the
+strategy engine.
 
 ## Layer mapping
 
-| Report layer | Engine call | Pass condition |
+| Report layer | Continuous return path | Classification / count path |
 |---|---|---|
-| Layer 1 (DSR) | `trial_sharpes` + `dsr_dynamic` | DSR >= `min_dsr` (default 0.95) |
-| Layer 2 (Monte Carlo) | `monte_carlo` on held-out predictions | p <= `max_p` (default 0.05) |
-| Layer 3 (OOS Decay) | `oos_decay` on a chronological split | decay <= tolerance |
-| Layer 4 (Parameter Sensitivity) | `pss` over `PARAMETERS` | drop <= `max_performance_drop` |
+| Layer 1 (DSR) | `trial_sharpes` + `dsr_dynamic` | `not_applicable` |
+| Layer 2 (Monte Carlo) | `monte_carlo` on held-out predictions | label-permutation test with the primary metric |
+| Layer 3 (OOS Decay) | `oos_decay` on a chronological split | chronological out-of-sample decay |
+| Layer 4 (Parameter Sensitivity) | `pss` over `PARAMETERS` | `pss` over `PARAMETERS`; `not_applicable` when none |
 
-The full path calls `validation_engine`. When `PARAMETERS` has no non-degenerate
-numeric value, Layers 1-3 run explicitly and Layer 4 is
+The full continuous path calls `validation_engine`. When `PARAMETERS` has no
+non-degenerate numeric value, Layers 1-3 run explicitly and Layer 4 is
 `skipped: degenerate_hyperparameter`. Zero-valued floats are removed before the
 engine because `pss` perturbs them to themselves and reports a vacuous pass.
+
+Classification calibration (`max_ece`) and count dispersion (`max_dispersion`)
+are optional gates. Both values are reported in the layer diagnostics even when
+no gate is configured; an unavailable diagnostic never fails a run by itself.
 
 ## Report statuses
 
@@ -61,7 +87,7 @@ engine because `pss` perturbs them to themselves and reports a vacuous pass.
 |---|---|
 | `passed` | All four layers passed |
 | `failed` | At least one layer failed |
-| `partial` | Some layers passed; others were skipped (for example, in-sample fallback or no perturbable parameter) |
+| `partial` | Some layers passed; others were skipped, including Layer 1 for classification/count, in-sample fallback, or no perturbable parameter |
 | `skipped` | No layer could run (target contract, no target, no predictions) |
 | `error` | Runner, configuration, or engine error |
 
@@ -93,7 +119,10 @@ The test suite covers:
 
 - full four-layer pass on a strong synthetic linear model;
 - zero-parameter Layer 4 skip;
-- binary-target skip;
+- binary, multiclass, and count validation through `validate_model` with the
+  expected primary metric and label round-trip;
+- in-slice permutation for multiclass and count primary metrics;
+- calibration and dispersion diagnostics and gates;
 - in-sample fallback without `_fit`/`_predict`;
 - adapter round-trips for numeric and categorical features;
 - report persistence, artifact embedding, and preview rendering.
@@ -106,8 +135,9 @@ Run with:
 
 ## Known limitations
 
-- The engine has no categorical target path; those reports are skips.
-- `periods_per_year` defaults to 1 for non-time-series data. The report labels
-  this as a directional-signal test, not a financial return series.
+- The `stats_engine` backend remains return-only; general regression,
+  classification, and count targets use the in-slice or general-engine path.
+- `periods_per_year` applies only to the return-like path. General targets are
+  not interpreted as financial return series.
 - Legacy artifacts remain valid but validate in-sample only.
 - A live two-dataset validation run is still pending provider quota.

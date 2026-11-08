@@ -45,6 +45,7 @@ from stats_engine import (  # noqa: E402
     validation_engine,
 )
 
+from whack26.validation import engine_bridge  # noqa: E402
 from whack26.validation.adapter import (  # noqa: E402
     AdapterSkip,
     FeatureMatrix,
@@ -299,6 +300,87 @@ def _engine_layers(engine: dict[str, Any]) -> list[ValidationLayerReport]:
     return layers
 
 
+_BRIDGE_TARGET_KINDS = frozenset({"binary", "multiclass", "count"})
+_LEGACY_TARGET_KINDS = frozenset({"continuous", "time_series"})
+
+
+def _bridge_engine(
+    *,
+    matrix: FeatureMatrix,
+    config: ValidationConfig,
+    description: str | None,
+    base_params: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate a non-continuous matrix with the general ``stats_engine`` API.
+
+    The bridge returns project layer reports already mapped, so they are kept
+    under a ``layers`` list (the legacy engine result keeps ``layers`` as a
+    dict, which the caller translates with :func:`_engine_layers`). Bridge
+    failures are reported as an error layer rather than raised: validation is
+    advisory and the parent process must still receive a report.
+    """
+    try:
+        result = engine_bridge.run_engine(
+            matrix=matrix,
+            config=config,
+            description=description,
+            base_params=base_params,
+        )
+        layers = engine_bridge.engine_result_to_layers(result)
+    except Exception as exc:  # noqa: BLE001 - bridge failures become error reports
+        message = f"{type(exc).__name__}: {exc}"
+        return {
+            "passed": False,
+            "error": message,
+            "message": message,
+            "layers": [_layer("Validation", "error", message)],
+        }
+    outcome = {
+        key: result.get(key)
+        for key in (
+            "passed",
+            "message",
+            "dsr_score",
+            "p_value",
+            "oos_score",
+            "decay_rate",
+            "tolerance",
+        )
+    }
+    outcome["layers"] = layers
+    return outcome
+
+
+def _apply_engine_outcome(
+    report: ValidationReport, engine: dict[str, Any]
+) -> ValidationReport:
+    """Copy a full-engine outcome onto ``report``.
+
+    Legacy outcomes carry the engine's result dict shape and need
+    :func:`_engine_layers`. Bridge outcomes already carry a list of project
+    layer reports, identified by ``layers`` being a list instead of a dict.
+    """
+    layers = engine.get("layers")
+    if isinstance(layers, list):
+        report.layers = layers
+        report.pss_message = str(engine.get("message") or "")
+        if engine.get("error"):
+            report.error = str(engine["error"])
+    else:
+        report.layers = _engine_layers(engine)
+        report.pss_message = (
+            "All 4 validation layers cleared successfully."
+            if engine.get("passed")
+            else str(engine.get("message") or "")
+        )
+    report.dsr_score = _json_safe(engine.get("dsr_score"))
+    report.p_value = _json_safe(engine.get("p_value"))
+    report.oos_score = _json_safe(engine.get("oos_score"))
+    report.decay_rate = _json_safe(engine.get("decay_rate"))
+    report.tolerance = _json_safe(engine.get("tolerance"))
+    return report
+
+
 def _full_engine(
     *,
     builder: Callable[[dict[str, Any], np.ndarray, np.ndarray], Callable],
@@ -307,6 +389,31 @@ def _full_engine(
     config: ValidationConfig,
     description: str | None,
 ) -> dict[str, Any]:
+    """Run the four-layer engine for this matrix's target kind.
+
+    ``binary``, ``multiclass``, and ``count`` targets are routed to the
+    general engine through :mod:`whack26.validation.engine_bridge`; the
+    legacy ``validation_engine`` only understands continuous return-like
+    series. Unsupported kinds are skipped rather than forced through either
+    engine.
+    """
+    kind = str(getattr(matrix, "target_kind", "continuous") or "continuous")
+    kind = kind.strip().lower()
+    if kind in _BRIDGE_TARGET_KINDS:
+        return _bridge_engine(
+            matrix=matrix,
+            config=config,
+            description=description,
+            base_params=base_params,
+        )
+    if kind not in _LEGACY_TARGET_KINDS:
+        message = f"unsupported target kind {kind!r}"
+        return {
+            "passed": False,
+            "message": message,
+            "layers": [_layer("Target contract", "skipped", message)],
+        }
+
     split = int(matrix.rows * config.train_split_ratio)
     if split <= 0 or split >= matrix.rows:
         raise ValueError("train_split_ratio produced an empty train or test split")
@@ -674,18 +781,7 @@ def _validate(payload: dict[str, Any]) -> ValidationReport:
                     config=config,
                     description=payload.get("description"),
                 )
-                report.layers = _engine_layers(engine)
-                report.dsr_score = _json_safe(engine.get("dsr_score"))
-                report.p_value = _json_safe(engine.get("p_value"))
-                report.oos_score = _json_safe(engine.get("oos_score"))
-                report.decay_rate = _json_safe(engine.get("decay_rate"))
-                report.tolerance = _json_safe(engine.get("tolerance"))
-                report.pss_message = (
-                    "All 4 validation layers cleared successfully."
-                    if engine.get("passed")
-                    else str(engine.get("message") or "")
-                )
-                return _finish(report)
+                return _finish(_apply_engine_outcome(report, engine))
             except Exception as exc:  # noqa: BLE001 - fall back to explicit layers
                 report.warnings.append(
                     "engine_fallback: "

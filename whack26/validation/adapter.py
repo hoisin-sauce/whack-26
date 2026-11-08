@@ -9,13 +9,49 @@ than forced through an incompatible engine contract.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence
 
 import numpy as np
 import pandas as pd
 
 _MISSING_CATEGORY = "__other__"
+
+TargetKind = Literal["continuous", "binary", "multiclass", "count"]
+
+_CONTINUOUS_KINDS = frozenset(
+    {"continuous", "time_series", "regression", "regressor"}
+)
+# Legacy screen kinds: ``numeric`` and ``categorical`` predate the typed target
+# vocabulary, so they fall back to data-driven inference.
+_INFERRED_KINDS = frozenset({"numeric", "categorical"})
+_CLASSIFICATION_KINDS = frozenset({"binary", "multiclass"})
+_KNOWN_KINDS = frozenset({"continuous", *_CLASSIFICATION_KINDS, "count"})
+
+# Tokens that mark an integer target as an event count rather than a
+# continuous measure. Mirrors the model-search target typing vocabulary.
+_COUNT_NAME_TOKENS = frozenset(
+    {
+        "count",
+        "counts",
+        "num",
+        "number",
+        "n",
+        "freq",
+        "frequency",
+        "occurrence",
+        "occurrences",
+        "event",
+        "events",
+        "visit",
+        "visits",
+        "trip",
+        "trips",
+        "quantity",
+        "qty",
+    }
+)
 
 
 class AdapterSkip(Exception):
@@ -50,6 +86,8 @@ class FeatureMatrix:
     target_dtype: str
     periods_per_year: float
     periods_per_year_source: str
+    target_kind: str = "continuous"
+    target_labels: dict[int, Any] = field(default_factory=dict)
 
     @property
     def rows(self) -> int:
@@ -102,11 +140,34 @@ class FeatureMatrix:
             target = np.asarray(y, dtype=float).ravel()
             if target.shape[0] != values.shape[0]:
                 raise ValueError("target length does not match the feature matrix")
-            target_series = pd.Series(target, name=self.target_name)
+            if self.target_kind in _CLASSIFICATION_KINDS and self.target_labels:
+                try:
+                    labels = [
+                        self.target_labels[code]
+                        for code in _target_codes(target)
+                    ]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"unknown target code {exc.args[0]!r}"
+                    ) from exc
+                target_series = pd.Series(labels, name=self.target_name)
+            else:
+                target_series = pd.Series(target, name=self.target_name)
             frame[self.target_name] = _safe_cast(
                 target_series, self.target_dtype
             ).reset_index(drop=True)
         return frame
+
+
+def _target_codes(target: np.ndarray) -> list[int]:
+    """Convert an encoded class target back to integer codes."""
+    values = np.asarray(target, dtype=float).ravel()
+    if not np.all(np.isfinite(values)):
+        raise ValueError("classification target codes contain non-finite values")
+    rounded = np.rint(values)
+    if not np.allclose(values, rounded):
+        raise ValueError("classification target codes must be integers")
+    return [int(code) for code in rounded]
 
 
 def _safe_cast(series: pd.Series, dtype: str) -> pd.Series:
@@ -136,24 +197,189 @@ def _is_numeric(series: pd.Series) -> bool:
     )
 
 
-def _target_contract(frame: pd.DataFrame, target: str, target_kind: str | None) -> pd.Series:
-    if target not in frame.columns:
+def _name_has_token(name: Any, tokens: frozenset[str]) -> bool:
+    if name is None:
+        return False
+    parts = [part for part in re.split(r"[^a-z0-9]+", str(name).lower()) if part]
+    return bool(set(parts) & tokens)
+
+
+def _is_integral_non_negative(series: pd.Series) -> bool:
+    if not _is_numeric(series):
+        return False
+    values = pd.to_numeric(series, errors="coerce").dropna().to_numpy(dtype=float)
+    if values.size == 0:
+        return False
+    return bool(
+        np.all(np.isfinite(values))
+        and np.all(values >= 0.0)
+        and np.all(np.mod(values, 1.0) == 0.0)
+    )
+
+
+def infer_target_kind(series: pd.Series) -> TargetKind:
+    """Infer the engine target kind from a target column.
+
+    The rules are deliberately simple and order-sensitive:
+
+    * a boolean column or a column with exactly two non-null values is
+      ``binary``;
+    * a non-numeric column with 3-10 non-null values is ``multiclass``;
+    * a non-negative integral column with 3+ values and either 11+ levels or
+      a count-like name is ``count``;
+    * everything else is ``continuous``.
+    """
+    values = series.dropna()
+    if values.empty:
+        return "continuous"
+    if _is_bool(series):
+        return "binary"
+    distinct = int(values.nunique())
+    if distinct == 2:
+        return "binary"
+    if not _is_numeric(series):
+        if 3 <= distinct <= 10:
+            return "multiclass"
+        return "continuous"
+    if distinct >= 3 and _is_integral_non_negative(series):
+        if distinct >= 11 or _name_has_token(series.name, _COUNT_NAME_TOKENS):
+            return "count"
+    return "continuous"
+
+
+def _normalise_target_kind(target_kind: str | None) -> str | None:
+    if target_kind is None:
+        return None
+    kind = str(target_kind).strip().lower()
+    if not kind or kind in _INFERRED_KINDS:
+        return None
+    if kind in _CONTINUOUS_KINDS:
+        return "continuous"
+    return kind
+
+
+def _plain_label(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def _sorted_labels(values: Any) -> list[Any]:
+    labels = [_plain_label(value) for value in pd.unique(values).tolist()]
+    try:
+        return sorted(labels)
+    except TypeError:
+        return sorted(labels, key=str)
+
+
+def _encode_continuous(series: pd.Series) -> tuple[np.ndarray, dict[int, Any]]:
+    if _is_bool(series) or not _is_numeric(series):
         raise AdapterSkip(
             "target_contract",
-            f"target column {target!r} is not in the dataset",
+            f"target is not a continuous numeric series (dtype {series.dtype})",
         )
-    series = frame[target]
+    values = pd.to_numeric(series, errors="coerce").to_numpy(
+        dtype=float, na_value=np.nan
+    )
+    if not np.all(np.isfinite(values)):
+        raise AdapterSkip(
+            "target_contract", "the continuous target contains non-finite values"
+        )
+    if np.unique(values).size < 2:
+        raise AdapterSkip("target_contract", "the target is constant")
+    return values.astype(float), {}
+
+
+def _encode_classes(
+    series: pd.Series, kind: str
+) -> tuple[np.ndarray, dict[int, Any]]:
+    if _is_datetime(series) or pd.api.types.is_complex_dtype(series.dtype):
+        raise AdapterSkip(
+            "target_contract",
+            f"target dtype {series.dtype} cannot be encoded as classes",
+        )
+    if series.isna().any():
+        raise AdapterSkip(
+            "target_contract", "the class target contains missing values"
+        )
+    labels = _sorted_labels(series)
+    if len(labels) < 2:
+        raise AdapterSkip("target_contract", "the target is constant")
+    if kind == "binary" and len(labels) != 2:
+        raise AdapterSkip(
+            "target_contract",
+            f"a binary target requires exactly 2 classes, found {len(labels)}",
+        )
+    lookup = {label: index for index, label in enumerate(labels)}
+    codes = np.empty(len(series), dtype=float)
+    for row, value in enumerate(series.tolist()):
+        label = _plain_label(value)
+        index = lookup.get(label)
+        if index is None:
+            raise AdapterSkip(
+                "target_contract", f"unencodable target value {value!r}"
+            )
+        codes[row] = float(index)
+    return codes, {index: label for index, label in enumerate(labels)}
+
+
+def _encode_count(series: pd.Series) -> tuple[np.ndarray, dict[int, Any]]:
+    if _is_bool(series) or not _is_numeric(series):
+        raise AdapterSkip(
+            "target_contract",
+            f"a count target must be numeric (dtype {series.dtype})",
+        )
+    values = pd.to_numeric(series, errors="coerce").to_numpy(
+        dtype=float, na_value=np.nan
+    )
+    if not np.all(np.isfinite(values)):
+        raise AdapterSkip(
+            "target_contract", "the count target contains non-finite values"
+        )
+    if np.any(values < 0.0):
+        raise AdapterSkip(
+            "target_contract", "the count target contains negative values"
+        )
+    if not np.all(np.mod(values, 1.0) == 0.0):
+        raise AdapterSkip(
+            "target_contract", "the count target contains non-integer values"
+        )
+    if np.unique(values).size < 2:
+        raise AdapterSkip("target_contract", "the target is constant")
+    return values.astype(float), {}
+
+
+def encode_target(
+    series: pd.Series, kind: str
+) -> tuple[np.ndarray, dict[int, Any]]:
+    """Encode a target column for the engine, returning codes and labels.
+
+    Binary and multiclass targets are encoded with stable, sorted class labels;
+    the returned mapping lets :meth:`FeatureMatrix.frame_from_matrix` restore
+    the original values. Counts keep their numeric values. Continuous targets
+    stay numeric. Constant targets and invalid count targets raise
+    :class:`AdapterSkip` with reason ``target_contract``.
+    """
+    resolved = _normalise_target_kind(kind)
+    if resolved is None:
+        resolved = infer_target_kind(series)
+    if resolved == "continuous":
+        return _encode_continuous(series)
+    if resolved in _CLASSIFICATION_KINDS:
+        return _encode_classes(series, resolved)
+    if resolved == "count":
+        return _encode_count(series)
+    raise AdapterSkip(
+        "target_contract", f"unsupported target kind {kind!r}"
+    )
+
+
+def _continuous_target_contract(series: pd.Series, target: str) -> pd.Series:
     if _is_bool(series) or not _is_numeric(series):
         raise AdapterSkip(
             "target_contract",
             f"target {target!r} is not a continuous numeric series "
             f"(dtype {series.dtype})",
-        )
-    if target_kind == "categorical":
-        raise AdapterSkip(
-            "target_contract",
-            f"target {target!r} is categorical; the engine requires a "
-            "continuous return-like series",
         )
     values = pd.to_numeric(series, errors="coerce")
     finite = np.isfinite(values.to_numpy(dtype=float, na_value=np.nan))
@@ -184,6 +410,91 @@ def _target_contract(frame: pd.DataFrame, target: str, target_kind: str | None) 
             f"(only {distinct} distinct values)",
         )
     return values
+
+
+def _class_target_contract(
+    series: pd.Series, target: str, kind: str
+) -> None:
+    if _is_datetime(series) or pd.api.types.is_complex_dtype(series.dtype):
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} has dtype {series.dtype}, which cannot be "
+            "encoded as class labels",
+        )
+    values = series.dropna()
+    if len(values) < 20:
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} has fewer than 20 usable rows",
+        )
+    distinct = int(values.nunique())
+    if distinct < 2:
+        raise AdapterSkip("target_contract", f"target {target!r} is constant")
+    if kind == "binary" and distinct != 2:
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} is not binary: found {distinct} classes",
+        )
+
+
+def _count_target_contract(series: pd.Series, target: str) -> pd.Series:
+    if _is_bool(series) or not _is_numeric(series):
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} is not a numeric count series "
+            f"(dtype {series.dtype})",
+        )
+    values = pd.to_numeric(series, errors="coerce").to_numpy(
+        dtype=float, na_value=np.nan
+    )
+    if not np.all(np.isfinite(values)):
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} contains non-finite count values",
+        )
+    if np.any(values < 0.0):
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} contains negative count values",
+        )
+    if not np.all(np.mod(values, 1.0) == 0.0):
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} contains non-integer count values",
+        )
+    if values.size < 20:
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} has fewer than 20 usable rows",
+        )
+    if np.unique(values).size < 2:
+        raise AdapterSkip("target_contract", f"target {target!r} is constant")
+    return series
+
+
+def _target_contract(
+    frame: pd.DataFrame, target: str, target_kind: str | None
+) -> tuple[pd.Series, str]:
+    if target not in frame.columns:
+        raise AdapterSkip(
+            "target_contract",
+            f"target column {target!r} is not in the dataset",
+        )
+    series = frame[target]
+    kind = _normalise_target_kind(target_kind)
+    if kind is None:
+        kind = infer_target_kind(series)
+    if kind not in _KNOWN_KINDS:
+        raise AdapterSkip(
+            "target_contract",
+            f"target {target!r} has unsupported target kind {target_kind!r}",
+        )
+    if kind == "continuous":
+        return _continuous_target_contract(series, target), kind
+    if kind in _CLASSIFICATION_KINDS:
+        _class_target_contract(series, target, kind)
+        return series, kind
+    return _count_target_contract(series, target), kind
 
 
 def _select_features(
@@ -334,7 +645,7 @@ def build_feature_matrix(
     """
     if frame.empty:
         raise AdapterSkip("target_contract", "the dataset is empty")
-    target_values = _target_contract(frame, target, target_kind)
+    target_values, resolved_kind = _target_contract(frame, target, target_kind)
     feature_columns = _select_features(
         frame,
         target,
@@ -384,11 +695,7 @@ def build_feature_matrix(
             "feature_contract",
             "the feature matrix is empty or contains non-finite values",
         )
-    y = pd.to_numeric(working[target], errors="coerce").to_numpy(dtype=float)
-    if not np.all(np.isfinite(y)):
-        raise AdapterSkip(
-            "target_contract", "the target contains non-finite values"
-        )
+    y, target_labels = encode_target(working[target], resolved_kind)
 
     return FeatureMatrix(
         X=X,
@@ -401,6 +708,8 @@ def build_feature_matrix(
         target_dtype=str(working[target].dtype),
         periods_per_year=periods,
         periods_per_year_source=period_source,
+        target_kind=resolved_kind,
+        target_labels=target_labels,
     )
 
 

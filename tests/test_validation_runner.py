@@ -179,7 +179,7 @@ def test_zero_parameter_skips_layer_four(tmp_path: Path) -> None:
     assert report.status == "partial"
 
 
-def test_binary_target_is_skipped(tmp_path: Path) -> None:
+def test_binary_target_routes_through_general_engine(tmp_path: Path) -> None:
     run_dir, module_path, dataset_path, predictions_path = prepare(
         tmp_path, binary=True
     )
@@ -190,8 +190,12 @@ def test_binary_target_is_skipped(tmp_path: Path) -> None:
         run_dir=run_dir,
     )
 
-    assert report.status == "skipped"
-    assert report.layers[0].reason.startswith("target_contract")
+    # Layer 1 is DSR-only, so classification runs are partial by design.
+    assert report.status == "partial"
+    assert report.layer("Layer 1 (DSR)").status == "skipped"
+    assert report.layer("Layer 2 (Monte Carlo)").status == "passed"
+    assert report.layer("Layer 3 (OOS Decay)").status == "passed"
+    assert report.layer("Layer 4 (Parameter Sensitivity)").status == "passed"
 
 
 def test_applies_false_is_skipped(tmp_path: Path) -> None:

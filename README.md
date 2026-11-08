@@ -157,8 +157,14 @@ feature columns only, so it cannot read the target. Legacy modules without the
 helpers fall back to the saved predictions and are reported as partial
 (in-sample) results.
 
-The engine supports only continuous, return-like targets. Binary, categorical,
-constant, non-finite, and short targets are reported as
+The four-layer strategy engine is reserved for continuous, return-like series.
+General continuous, binary, multiclass, and count targets are validated through
+`stats_engine.validate_model` with the primary metric chosen per target kind —
+R² for regression, log loss/AUC/accuracy for classification, and Poisson
+deviance for counts. Optional calibration (`max_ece`) and dispersion
+(`max_dispersion`) gates are reported in the diagnostics. Classification and
+count reports are `partial` because Layer 1 (DSR) is return-series-only.
+Constant, non-finite, and short targets are still reported as
 `skipped: target_contract`; they never block artifact emission. Run validation
 standalone with:
 
