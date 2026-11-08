@@ -11,6 +11,7 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -426,12 +427,21 @@ strong, b {
 
 
 class DragDropTextEdit(QTextEdit):
-    """Custom QTextEdit widget that accepts dropped files (.csv, .xls, .xlsx)."""
+    """Custom QTextEdit widget that accepts dropped files and opens a picker."""
+
+    dataset_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.parent_dashboard = parent
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.dataset_requested.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -634,7 +644,7 @@ class DatasetWorkspace(QWidget):
         results_layout.setSpacing(18)
 
         # Left Box: Activity & File Drop Log
-        log_group = QGroupBox("03 / DATASET DROP ZONE && ACTIVITY LOG")
+        log_group = QGroupBox("03 / DATASET PICKER / DROP ZONE && ACTIVITY LOG")
         log_layout = QVBoxLayout()
         log_layout.setContentsMargins(16, 14, 16, 16)
         log_layout.setSpacing(10)
@@ -644,12 +654,18 @@ class DatasetWorkspace(QWidget):
         contract_note.setWordWrap(True)
         log_layout.addWidget(contract_note)
 
+        self.browse_btn = QPushButton("Choose dataset...")
+        self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.browse_btn.clicked.connect(self.browse_for_dataset)
+        log_layout.addWidget(self.browse_btn)
+
         self.log_output = DragDropTextEdit(self)
         self.log_output.setObjectName("logOutput")
         self.log_output.setReadOnly(True)
         self.log_output.setPlaceholderText(
-            "Drop your dataset (.csv, .xls, .xlsx) anywhere in this box..."
+            "Click this box to choose a dataset, or drop a .csv/.xls/.xlsx file here..."
         )
+        self.log_output.dataset_requested.connect(self.browse_for_dataset)
         log_layout.addWidget(self.log_output)
         log_group.setLayout(log_layout)
         results_layout.addWidget(log_group, 3)
@@ -838,6 +854,21 @@ class DatasetWorkspace(QWidget):
         self._set_pipeline_loading(False)
         self.log_output.append(f"\nPipeline failed: {message}")
         self._show_report_error(f"The pipeline failed: {message}")
+
+    def browse_for_dataset(self) -> None:
+        """Open a file picker and submit the chosen dataset."""
+        if self.dropped_file_path:
+            start_dir = str(Path(self.dropped_file_path).parent)
+        else:
+            start_dir = str(Path.home())
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choose dataset",
+            start_dir,
+            "Datasets (*.csv *.xls *.xlsx);;All files (*)",
+        )
+        if file_path:
+            self.handle_dropped_file(file_path)
 
     def handle_dropped_file(self, file_path):
         self.dropped_file_path = file_path

@@ -361,3 +361,45 @@ def test_ui_21_nan_in_used_feature_is_dropped_then_rejected_when_too_few_rows(
     summary = workspace.summary_output.toPlainText()
     assert "Status: REJECTED" in summary
     assert "At least 30 complete rows" in summary
+
+
+def test_ui_22_browse_button_loads_the_selected_dataset(
+    workspace, tmp_path: Path, monkeypatch
+) -> None:
+    path = make_ui_dataset(tmp_path / "picked.csv")
+
+    def fake_dialog(*_args, **_kwargs):
+        return str(path), "Datasets (*.csv)"
+
+    monkeypatch.setattr(
+        UI_frontEnd.QFileDialog, "getOpenFileName", fake_dialog
+    )
+    workspace.browse_btn.click()
+
+    assert workspace.loaded_dataframe is not None
+    assert workspace.loaded_dataframe.shape[0] == 80
+    assert workspace.dropped_file_path == str(path)
+
+
+def test_ui_23_clicking_the_drop_zone_opens_the_picker(
+    qtbot, workspace, tmp_path: Path, monkeypatch
+) -> None:
+    from PyQt6.QtCore import Qt
+
+    path = make_ui_dataset(tmp_path / "clicked.csv")
+    calls: list[tuple] = []
+
+    def fake_dialog(*args, **_kwargs):
+        calls.append(args)
+        return str(path), "Datasets (*.csv)"
+
+    monkeypatch.setattr(
+        UI_frontEnd.QFileDialog, "getOpenFileName", fake_dialog
+    )
+    qtbot.mouseClick(
+        workspace.log_output.viewport(), Qt.MouseButton.LeftButton
+    )
+
+    assert calls
+    assert workspace.loaded_dataframe is not None
+    assert workspace.dropped_file_path == str(path)
