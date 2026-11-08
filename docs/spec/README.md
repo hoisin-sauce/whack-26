@@ -75,6 +75,27 @@ artifact.json + preview.md + validation.json + hypotheses/*.py + predictions/*.c
 | [`../../GLOSSARY.md`](../../GLOSSARY.md) | Reference | Shared language: field, level, field path, factor, hypothesis, critic, artifact |
 | [`../corpus/statistical-pitfalls.md`](../corpus/statistical-pitfalls.md) | Reference | The preloaded method-critic corpus (11 retrievable chunks S0–S10, plus checklist and phrasebook appendices; cited) |
 
+## Documentation contract
+
+Each fact has one authority:
+
+| Fact | Authority |
+|---|---|
+| Artifact fields, required/optional, version | `whack26/artifact.py` + `schemas/artifact.schema.json` |
+| CLI commands and flags | `whack26/cli.py::build_parser` |
+| Env vars and defaults | `whack26/config.py::Settings.from_env` + `.env.example` |
+| SQLite schema and migrations | `whack26/store.py` |
+| Source names, limits, priors | `whack26/research/base.py`, `whack26/research/pipeline.py` |
+| Statistical and generation validation | `whack26/validation/models.py`, `generation_models.py` |
+
+Status labels are literal:
+
+- **implemented** — a test exercises it and it is reachable from `run`, the artifact, the preview, or the CLI;
+- **library-only** — implemented and tested but not yet wired into the default path;
+- **planned** — not implemented; use forward-looking wording and link the ticket.
+
+Plan documents are non-normative. Do not describe a symbol, flag, env var, schema field, or behavior as implemented unless the authority above and a test agree.
+
 Original research notes live on their branches: `research/free-apis`, `research/llm-providers`, `research/python-stack`, `research/statistical-pitfalls`. They are never merged.
 
 ## Repo layout
