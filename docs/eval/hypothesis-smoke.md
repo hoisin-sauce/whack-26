@@ -5,12 +5,14 @@ Status: live end-to-end smoke on 2/2 demo datasets. Recorded 2026-11-08.
 > The logical-flaws review fixes landed after this smoke. The recorded
 > artifacts remain valid, but a fresh run may produce different research
 > records, factor mappings, or hypotheses because classification cache identity,
-> query caching, deduplication, and target-role validation changed.
+> query caching, deduplication, and target-role validation changed. Later
+> stages (model search, variants, generation validation, field pitfalls,
+> statistical validation, and the final judge) were added after this record.
 
-This page records the first full `whack26 run` on California Housing and Palmer
+This page records the first full Referee run on California Housing and Palmer
 Penguins: classification, research, factor mapping, the cheap screen, three
-generated hypotheses, the method critic, the JSON artifact, the Markdown
-preview, and prediction reproducibility.
+generated hypotheses, the method critic, the JSON artifact (then schema
+`1.0.0`), the Markdown preview, and prediction reproducibility.
 
 Provider: `gemini-3.5-flash-lite` for language calls and
 `gemini-embedding-2` at 768 dimensions for embeddings. The default

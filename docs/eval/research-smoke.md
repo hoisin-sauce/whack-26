@@ -110,5 +110,7 @@ Result: 6 factors, 6 mapped, no warnings.
 - California produced 4 factors, below the 5-10 target, even after the prompt
   required direct evidence. The warning is visible in the run.
 - The ten-dataset acceptance run remains blocked by provider quota.
-- `prefetch` exposes research and cache warming. Factor extraction is currently
-  called from Python; it becomes part of the artifact pipeline when `run` lands.
+- `prefetch` exposes research and cache warming. Factor extraction is now part
+  of `run`; `whack26/research/metrics.py` can additionally enrich the ranked
+  records with OpenAlex author metrics when `WHACK26_RESEARCH_METRICS_ENABLED=1`
+  and `OPENALEX_API_KEY` are set.

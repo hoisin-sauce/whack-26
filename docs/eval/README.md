@@ -104,6 +104,16 @@ unmodified `stats_engine.py`, writes `validation.json`, and embeds optional
 reports in the artifact. Legacy runs validate in-sample; a live two-dataset
 validation run is pending provider quota.
 
+## Final-judge and UI handoff
+
+The advisory final judge, its deterministic checks, decision rules, report
+formats, and artifact/UI handoff are documented in
+[`../spec/final-judge.md`](../spec/final-judge.md). The mock/offline path is
+covered by `tests/test_final_judge_*.py` and `tests/test_ui_pipeline.py`; the
+live judge run is pending provider quota. The UI test matrix and its documented
+`xfail` gaps are in
+[`../spec/ui-integration-test-plan.md`](../spec/ui-integration-test-plan.md).
+
 ## Hierarchy and model-search evals
 
 ```powershell

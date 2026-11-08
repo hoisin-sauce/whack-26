@@ -212,9 +212,9 @@ step if no Qt binding supported by that pytest-qt version is present.
 
 ### Pytest configuration
 
-`pyproject.toml` already registers `optional`, `ui`, `slow`, and `live`. Add the
-missing `integration` marker to that list; do not create a separate
-`pytest.ini`.
+`pyproject.toml` registers `optional`, `ui`, `integration`, `slow`, and
+`live`; there is no separate `pytest.ini`. The `integration` marker is now
+present.
 
 ```toml
 [tool.pytest.ini_options]
@@ -227,7 +227,7 @@ markers = [
 ]
 ```
 
-Only the `integration` line is new; the rest already exists.
+This is the current marker list.
 
 ### Shared fixtures
 
@@ -940,20 +940,22 @@ only one subagent pays the mock-pipeline setup cost.
 
 ## Open decisions
 
-1. **How does the UI launch a run?** Recommend a worker that calls
-   `run_pipeline` in-process for log streaming, or a subprocess/CLI call for
-   isolation. This choice determines UI-90 to UI-95.
-2. **Does the UI read only the fragment or also `artifact.json`?** Recommend
-   the fragment for display and `artifact.json`/`final_judge.json` for metadata
-   such as the decision enum and report paths.
-3. **Should `--judge` be on by default in the UI?** Recommend a "full report"
-   toggle that defaults to on, while the CLI default stays off.
-4. **Where does the run directory come from?** Drop a folder, choose it in a
-   dialog, or always create one under `runs/`. The test plan works with any of
-   these once the seam is fixed.
-5. **Should `load_final_judge_report` validate the artifact first?** Recommend
-   warning (not blocking) when `artifact.json` is missing or invalid, so a
-   fragment-only handoff still renders.
+1. **How does the UI launch a run?** Decided: `start_pipeline` runs
+   `run_pipeline` in an in-process background `_PipelineTask` thread, with log
+   streaming and failure signals. A subprocess/CLI call remains an alternative
+   if stronger isolation is needed.
+2. **Does the UI read only the fragment or also `artifact.json`?** It reads the
+   fragment for display and the run directory for handoff; artifact metadata
+   validation is not enforced.
+3. **Should `--judge` be on by default in the UI?** Decided: the dashboard
+   always requests `final_judge=True` when it launches the pipeline, while the
+   CLI default stays off.
+4. **Where does the run directory come from?** The UI does not choose a run
+   directory; `run_pipeline` creates one under `WHACK26_RUNS_DIR`. Loading an
+   existing directory through `load_final_judge` remains supported.
+5. **Should `load_final_judge_report` validate the artifact first?** Still open.
+   It currently checks only for the fragment and raises `FileNotFoundError`
+   with a `--judge` hint.
 6. **Fragment version marker.** Add one if the renderer is expected to change
    shape again after the hackathon.
 7. **Marker ownership.** Register both `ui` and `integration`; if issue #15 is

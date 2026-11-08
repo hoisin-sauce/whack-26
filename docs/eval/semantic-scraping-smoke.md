@@ -1,11 +1,11 @@
 # Semantic-scraping smoke
 
-Status: implementation complete; mock end-to-end validated. The live smoke is
-pending provider quota.
+Status: implementation complete; mock end-to-end validated. The full live smoke
+is pending provider quota; a 5-document live smoke is recorded below.
 
 > **Historical record (2026-11-08).** This smoke was captured when the store was
 > schema v2 and the artifact schema was `1.1.0`. The store is now v4 and the
-> artifact schema is `1.3.0`; `schemas/artifact.schema.json` is the authority.
+> artifact schema is `1.5.0`; `schemas/artifact.schema.json` is the authority.
 > The results below are preserved as-is and are not updated.
 
 ## What is implemented
@@ -14,7 +14,8 @@ pending provider quota.
   `documents`, `datasets`, `document_links`, `document_fields`,
   `document_comparisons`, `document_critiques`, `document_fetches`, and
   `schema_migrations`.
-- v1→v2 migration from the previous `datasets`/`field_members` schema.
+- The v1→v2 migration from the previous `datasets`/`field_members` schema, now
+  followed by v3→v4 migrations in `whack26/store.py`.
 - Document identity/dedup, summaries and embeddings, target-gated frontier,
   field classification, credibility scoring, cached comparisons, document
   method critique, and the statistics/validity preload.
@@ -22,7 +23,7 @@ pending provider quota.
   crawl-delay, per-domain rate limits, redirect re-validation, SSRF/private
   network blocking, allow/block lists, PDF/binary rejection, size/time caps,
   ETag/304 caching, and a capped text-excerpt cache.
-- Artifact schema `1.1.0` at the time (now `1.3.0`) with the optional
+- Artifact schema `1.1.0` at the time (now `1.5.0`) with the optional
   `research.semantic_scraping` section and a Markdown preview section.
 
 ## Commands
@@ -57,8 +58,10 @@ The mock path verifies:
   `## Semantic scraping` in `preview.md`;
 - the `scrape` command runs the same pipeline with scraping enabled;
 - `preload-statistics` handles an offline/zero-limit run without network;
-- the artifact validator accepts schema `1.1.0`;
-- the full suite is green (`486 passed` at the time of writing).
+- the artifact validator accepts schema `1.1.0` at the time (current schema
+  `1.5.0`);
+- the full suite was green at the time of writing; see the current suite report
+  for the present count.
 
 The mock research cache is empty, so the mock run records a `scrape_no_seeds`
 warning and an empty document list. The module-level tests exercise real
@@ -83,8 +86,8 @@ thread and covers:
 - text-excerpt caps that never store full HTML;
 - the semantic-scraping pipeline using the compliant fetcher end to end.
 
-The suite passes as part of the full test run (`526 passed` at the time of
-writing). The compliance suite has 34 tests.
+The suite passes as part of the full test run. The compliance suite has 34
+tests at the time of writing.
 
 ## Live smoke plan
 
