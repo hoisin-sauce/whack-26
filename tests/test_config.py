@@ -86,6 +86,48 @@ def test_valid_similarity_weights_are_accepted() -> None:
     assert settings.centroid_weight == pytest.approx(0.3)
 
 
+def test_scrape_settings_parse_from_env() -> None:
+    settings = Settings.from_env(
+        {
+            "WHACK26_SCRAPE_ENABLED": "1",
+            "WHACK26_SCRAPE_MAX_DEPTH": "3",
+            "WHACK26_SCRAPE_MAX_RESOURCES": "42",
+            "WHACK26_SCRAPE_MAX_LINKS_PER_RESOURCE": "7",
+            "WHACK26_SCRAPE_MAX_FETCHES": "9",
+            "WHACK26_SCRAPE_SUMMARY_THRESHOLD": "0.7",
+            "WHACK26_SCRAPE_LINK_THRESHOLD": "0.8",
+            "WHACK26_SCRAPE_CREDIBILITY_THRESHOLD": "0.6",
+            "WHACK26_SCRAPE_TTL_DAYS": "3",
+        }
+    )
+    assert settings.scrape_enabled is True
+    assert settings.scrape_max_depth == 3
+    assert settings.scrape_max_resources == 42
+    assert settings.scrape_max_links_per_resource == 7
+    assert settings.scrape_max_fetches == 9
+    assert settings.scrape_summary_threshold == pytest.approx(0.7)
+    assert settings.scrape_link_threshold == pytest.approx(0.8)
+    assert settings.scrape_credibility_threshold == pytest.approx(0.6)
+    assert settings.scrape_ttl_days == 3
+    assert settings.scrape_ttl_seconds == 3 * 86400
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"scrape_summary_threshold": 1.5}, "scrape_summary_threshold"),
+        ({"scrape_link_threshold": -0.1}, "scrape_link_threshold"),
+        ({"scrape_max_resources": 0}, "scrape_max_resources"),
+        ({"scrape_ttl_days": 0}, "scrape_ttl_days"),
+    ],
+)
+def test_invalid_scrape_settings_are_rejected(
+    kwargs: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        Settings(**kwargs)
+
+
 def test_load_dotenv_does_not_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

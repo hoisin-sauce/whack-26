@@ -11,6 +11,8 @@ import pandas as pd
 from whack26.artifact import validate_artifact
 from whack26.cli import main
 from whack26.config import Settings
+from whack26.research.base import ResearchRecord
+from whack26.research.pipeline import ResearchResult
 from whack26.run import run_pipeline
 
 
@@ -194,3 +196,175 @@ def test_cli_schema_writes_json_schema(tmp_path: Path, capsys) -> None:
     assert payload["type"] == "object"
     assert "HypothesisSection" in payload["$defs"]
     assert "wrote" in capsys.readouterr().out
+
+
+def test_run_pipeline_with_scrape_mock_writes_scrape_json(tmp_path: Path) -> None:
+    dataset = tmp_path / "input.csv"
+    make_dataset(dataset)
+    run_dir = tmp_path / "run"
+    settings = make_settings(tmp_path).with_overrides(
+        scrape_enabled=True,
+        scrape_max_resources=10,
+        scrape_max_depth=1,
+    )
+
+    outcome = run_pipeline(
+        input_path=dataset,
+        target="y",
+        seed=0,
+        mock=True,
+        offline=True,
+        scrape=True,
+        settings=settings,
+        out_dir=run_dir,
+    )
+
+    assert outcome.scrape is not None
+    assert (run_dir / "scrape.json").is_file()
+    assert (run_dir / "scrape.md").is_file()
+    artifact, errors = validate_artifact(outcome.artifact_path)
+    assert errors == []
+    assert artifact is not None
+    assert artifact.research.semantic_scraping is not None
+    assert artifact.research.semantic_scraping.enabled is True
+    assert "## Semantic scraping" in outcome.preview_path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_cli_run_with_scrape_mock(tmp_path: Path, monkeypatch, capsys) -> None:
+    dataset = tmp_path / "input.csv"
+    make_dataset(dataset)
+    monkeypatch.setenv("WHACK26_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("WHACK26_RUNS_DIR", str(tmp_path / "runs"))
+    run_dir = tmp_path / "cli-scrape-run"
+
+    code = main(
+        [
+            "run",
+            "--input",
+            str(dataset),
+            "--target",
+            "y",
+            "--mock",
+            "--offline",
+            "--scrape",
+            "--out",
+            str(run_dir),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert "scrape:" in captured.out
+    assert (run_dir / "scrape.json").is_file()
+
+
+def test_cli_scrape_command_mock(tmp_path: Path, monkeypatch, capsys) -> None:
+    dataset = tmp_path / "input.csv"
+    make_dataset(dataset)
+    monkeypatch.setenv("WHACK26_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("WHACK26_RUNS_DIR", str(tmp_path / "runs"))
+    run_dir = tmp_path / "cli-scrape-command"
+
+    code = main(
+        [
+            "scrape",
+            "--input",
+            str(dataset),
+            "--target",
+            "y",
+            "--mock",
+            "--offline",
+            "--max-resources",
+            "5",
+            "--max-depth",
+            "1",
+            "--out",
+            str(run_dir),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert "scrape:" in captured.out
+    assert (run_dir / "scrape.json").is_file()
+    assert (run_dir / "scrape.md").is_file()
+
+
+def test_cli_preload_statistics_zero_limit(tmp_path: Path, capsys) -> None:
+    code = main(
+        [
+            "preload-statistics",
+            "--mock",
+            "--offline",
+            "--limit",
+            "0",
+            "--db",
+            str(tmp_path / "fields.db"),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    assert "preload: 0 document(s)" in captured.out
+    assert "preload_limit_zero" in captured.out
+
+
+def test_run_pipeline_with_scrape_and_seed_writes_documents(
+    tmp_path: Path, monkeypatch
+) -> None:
+    dataset = tmp_path / "input.csv"
+    make_dataset(dataset)
+    record = ResearchRecord(
+        id="openalex:W1",
+        source="openalex",
+        source_id="W1",
+        title="A housing study",
+        abstract="A study of housing prices and income.",
+        authors=["A. Author"],
+        year=2024,
+        doi=None,
+        url="https://example.test/W1",
+        license="CC0",
+        retrieved_at="2026-11-08T10:00:00Z",
+        query="housing prices",
+        relevance=0.9,
+    )
+    monkeypatch.setattr(
+        "whack26.run.run_research",
+        lambda **kwargs: ResearchResult(
+            records=[record],
+            queries=[],
+            warnings=[],
+            keywords=["housing"],
+            sources_used=["openalex"],
+            cache={"hits": 0, "misses": 0},
+        ),
+    )
+    run_dir = tmp_path / "run"
+    settings = make_settings(tmp_path).with_overrides(
+        scrape_enabled=True,
+        scrape_max_resources=5,
+        scrape_max_depth=1,
+    )
+
+    outcome = run_pipeline(
+        input_path=dataset,
+        target="y",
+        seed=0,
+        mock=True,
+        offline=True,
+        scrape=True,
+        settings=settings,
+        out_dir=run_dir,
+    )
+
+    assert outcome.scrape is not None
+    assert len(outcome.scrape.documents) >= 1
+    artifact, errors = validate_artifact(outcome.artifact_path)
+    assert errors == []
+    assert artifact is not None
+    assert artifact.research.semantic_scraping is not None
+    assert len(artifact.research.semantic_scraping.documents) >= 1
+    assert (run_dir / "scrape.json").is_file()

@@ -89,6 +89,13 @@ unique method families, a critic result per hypothesis, and predictions that
 reproduce exactly from the saved code. California returned one `refine` and two
 `pass` verdicts; Penguins returned three `refine` verdicts.
 
+## Semantic-scraping smoke
+
+The document catalog, SQLite v2 migration, frontier, credibility, comparisons,
+document critic, and preload are recorded in
+[`semantic-scraping-smoke.md`](semantic-scraping-smoke.md). The mock end-to-end
+path is validated; the live OpenAlex-reference smoke is pending provider quota.
+
 ## Current status
 
 The harness and its gate logic are implemented and tested. A full deterministic

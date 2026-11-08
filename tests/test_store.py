@@ -555,7 +555,11 @@ def test_stats_counts(store: FieldStore) -> None:
         "fields": 3,
         "roots": 2,
         "datasets": 1,
+        "documents": 1,
         "memberships": 2,
+        "links": 0,
+        "comparisons": 0,
+        "critiques": 0,
         "orphan_fields": 1,
     }
 

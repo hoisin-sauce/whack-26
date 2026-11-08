@@ -7,9 +7,17 @@ from artifact_fixtures import make_artifact
 
 from whack26.artifact import (
     SCHEMA_VERSION,
+    _semantic_scraping_section,
     artifact_json_schema,
     validate_artifact,
     write_artifact,
+)
+from whack26.research.scrape.models import (
+    Document,
+    DocumentComparison,
+    DocumentCritique,
+    DocumentLink,
+    ScrapeResult,
 )
 
 
@@ -118,6 +126,23 @@ def test_validate_rejects_unknown_schema_major(tmp_path: Path) -> None:
     assert any("unknown schema major" in error for error in errors)
 
 
+def test_validate_accepts_legacy_1_0_0_artifact(tmp_path: Path) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact_path = run_dir / "artifact.json"
+    write_artifact(artifact_path, artifact)
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = "1.0.0"
+    payload["research"].pop("semantic_scraping", None)
+    artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    loaded, errors = validate_artifact(artifact_path)
+
+    assert errors == []
+    assert loaded is not None
+    assert loaded.schema_version == "1.0.0"
+    assert loaded.research.semantic_scraping is None
+
+
 def test_artifact_json_schema_is_exportable() -> None:
     schema = artifact_json_schema()
 
@@ -125,3 +150,63 @@ def test_artifact_json_schema_is_exportable() -> None:
     assert "schema_version" in schema["properties"]
     assert set(schema["$defs"]) >= {"RunInfo", "DatasetSection", "HypothesisSection"}
     json.dumps(schema)
+
+
+def test_semantic_scraping_section_maps_documents() -> None:
+    scrape = ScrapeResult(
+        documents=[
+            Document(
+                id="doc_a",
+                kind="paper",
+                source="openalex",
+                title="A paper",
+                summary="A summary.",
+                summary_embedding=[1.0, 0.0],
+                canonical_url="https://example.test/a",
+                authors=["A. Author"],
+                published_at="2024-01-01",
+                credibility_score=0.8,
+                credible=True,
+                metadata={"field_path": ["Statistics", "Methods"]},
+            )
+        ],
+        links=[
+            DocumentLink(
+                from_id="doc_a",
+                to_id="doc_b",
+                relation="references",
+            )
+        ],
+        comparisons=[
+            DocumentComparison(
+                left_id="doc_a",
+                right_id="doc_b",
+                kind="method_overlap",
+                similarity=0.9,
+                verdict="supports",
+            )
+        ],
+        critiques=[
+            DocumentCritique(
+                document_id="doc_a",
+                corpus_version="1.0.0+abc",
+                verdict="refine",
+                summary="A method review.",
+            )
+        ],
+        warnings=["scrape_budget_exhausted"],
+        stats={"documents": 1},
+    )
+
+    section = _semantic_scraping_section(scrape)
+
+    assert section is not None
+    assert section.enabled is True
+    assert section.documents[0].field_path == ["Statistics", "Methods"]
+    assert section.documents[0].year == 2024
+    assert section.documents[0].critique_verdict == "refine"
+    assert section.links[0].relation == "references"
+    assert section.comparisons[0].verdict == "supports"
+    assert section.critiques[0].corpus_version == "1.0.0+abc"
+    assert section.warnings == ["scrape_budget_exhausted"]
+    assert section.stats == {"documents": 1}

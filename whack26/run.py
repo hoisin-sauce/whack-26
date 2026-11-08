@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Sequence
 
 from . import __version__
@@ -19,9 +21,10 @@ from .hypotheses import HypothesisContext, HypothesisGenerator, HypothesisSet
 from .ids import run_id
 from .io import read_dataset
 from .llm import build_llm_client
-from .preview import write_preview
+from .preview import render_scrape_preview, write_preview
 from .profile import build_profile, build_summary
 from .research.pipeline import ResearchResult, refine_after_research, run_research
+from .research.scrape.models import ScrapeResult
 from .screen import build_screen
 from .store import FieldStore
 
@@ -36,6 +39,8 @@ class RunOutcome:
     artifact: Artifact
     artifact_path: Path
     preview_path: Path
+    scrape: ScrapeResult | None = None
+    scrape_md_path: Path | None = None
 
 
 class _RunLog:
@@ -93,6 +98,33 @@ def _warning_list(*groups: Sequence[str]) -> list[str]:
     return result
 
 
+def _scraped_evidence(scrape: ScrapeResult | None) -> list[Any]:
+    """Convert credible scraped documents into factor/hypothesis evidence rows."""
+    if scrape is None:
+        return []
+    evidence: list[Any] = []
+    for document in scrape.documents:
+        if not document.credible:
+            continue
+        year = None
+        if document.published_at:
+            match = re.match(r"(\d{4})", str(document.published_at))
+            if match:
+                year = int(match.group(1))
+        evidence.append(
+            SimpleNamespace(
+                id=document.id,
+                source=document.source,
+                year=year,
+                title=document.title,
+                abstract=document.summary,
+                url=document.canonical_url,
+                doi=document.metadata.get("doi"),
+            )
+        )
+    return evidence
+
+
 def _write_dataset_copy(frame: Any, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(destination, index=False, lineterminator="\n")
@@ -107,6 +139,7 @@ def run_pipeline(
     mock: bool = False,
     offline: bool = False,
     refresh: bool = False,
+    scrape: bool | None = None,
     csv_sep: str = ",",
     out_dir: Path | None = None,
     store_path: Path | None = None,
@@ -120,12 +153,15 @@ def run_pipeline(
     settings = settings or Settings.from_env(
         mock=mock, offline=True if offline else None
     )
+    if scrape is not None:
+        settings = settings.with_overrides(scrape_enabled=bool(scrape))
     owns_llm = llm is None
     owns_embeddings = embeddings is None
     llm = llm if llm is not None else build_llm_client(settings)
     embeddings = (
         embeddings if embeddings is not None else build_embedding_client(settings)
     )
+    scrape_result: ScrapeResult | None = None
     try:
         loaded = read_dataset(input_path, target=target, csv_sep=csv_sep)
         profile = build_profile(
@@ -201,15 +237,41 @@ def run_pipeline(
                         + " > ".join(path.names)
                         + f" confidence={path.confidence:.3f}"
                     )
+                if settings.scrape_enabled:
+                    try:
+                        from .research.scrape.pipeline import run_semantic_scraping
+
+                        scrape_result = run_semantic_scraping(
+                            seeds=research.records,
+                            target=summary,
+                            store=store,
+                            llm=llm,
+                            embeddings=embeddings,
+                            settings=settings,
+                        )
+                        logger(
+                            f"scrape documents={len(scrape_result.documents)} "
+                            f"links={len(scrape_result.links)} "
+                            f"comparisons={len(scrape_result.comparisons)} "
+                            f"critiques={len(scrape_result.critiques)}"
+                        )
+                        for warning in scrape_result.warnings:
+                            logger(f"scrape_warning {warning}")
+                    except Exception as exc:  # noqa: BLE001 - keep the run alive
+                        research.warnings.append(
+                            f"scrape_failed: {type(exc).__name__}: {exc}"
+                        )
+                        logger(f"scrape_failed {type(exc).__name__}: {exc}")
         except Exception as exc:
             logger(f"run_failed stage=classify_or_research {type(exc).__name__}: {exc}")
             raise
 
+        evidence_records = _scraped_evidence(scrape_result) + list(research.records)
         factors: FactorExtraction = extract_factors(
             profile=profile,
             summary=summary,
             path_names=path.names,
-            records=research.records,
+            records=evidence_records,
             llm=llm,
             embeddings=embeddings,
             settings=settings,
@@ -226,7 +288,7 @@ def run_pipeline(
             summary=summary,
             path_names=path.names,
             factors=factors.factors,
-            records=research.records,
+            records=evidence_records,
             screen=screen,
         )
         generator = HypothesisGenerator(
@@ -261,7 +323,7 @@ def run_pipeline(
                 field_path=path.fields,
                 factors=factors.factors,
                 screen=screen,
-                research=research.records,
+                research=evidence_records,
                 llm=llm,
                 embeddings=embeddings,
                 settings=settings,
@@ -278,6 +340,7 @@ def run_pipeline(
             factors.warnings,
             screen.warnings,
             hypotheses.warnings,
+            scrape_result.warnings if scrape_result is not None else [],
             [
                 f"critic_warning: {critic.hypothesis_id}: {warning}"
                 for critic in critics
@@ -304,6 +367,7 @@ def run_pipeline(
             warnings=warnings,
             corpus_version=corpus.version if corpus is not None else None,
             base_dir=settings.base_dir,
+            scrape=scrape_result,
         )
         artifact_path = run_dir / "artifact.json"
         write_artifact(artifact_path, artifact)
@@ -314,6 +378,17 @@ def run_pipeline(
             run_dir / "factors.json",
             [factor.model_dump(mode="json") for factor in factors.factors],
         )
+        if scrape_result is not None:
+            _write_json(
+                run_dir / "scrape.json",
+                scrape_result.model_dump(mode="json"),
+            )
+            scrape_md_path = run_dir / "scrape.md"
+            scrape_md_path.write_text(
+                render_scrape_preview(scrape_result), encoding="utf-8"
+            )
+        else:
+            scrape_md_path = None
         logger(f"artifact {artifact_path.name} hypotheses={len(hypotheses.hypotheses)}")
 
         loaded_artifact, errors = validate_artifact(artifact_path)
@@ -329,6 +404,8 @@ def run_pipeline(
             artifact=artifact,
             artifact_path=artifact_path,
             preview_path=preview_path,
+            scrape=scrape_result,
+            scrape_md_path=scrape_md_path,
         )
     finally:
         for client, owned in ((llm, owns_llm), (embeddings, owns_embeddings)):

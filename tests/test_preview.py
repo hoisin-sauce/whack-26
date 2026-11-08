@@ -4,6 +4,7 @@ from pathlib import Path
 
 from artifact_fixtures import make_artifact
 
+from whack26.artifact import SemanticScrapingDocumentSection, SemanticScrapingSection
 from whack26.preview import preview_from_path, render_preview, write_preview
 
 
@@ -98,3 +99,36 @@ def test_write_preview_and_preview_from_path(tmp_path: Path) -> None:
     assert generated == run_dir / "preview.md"
     assert generated.is_file()
     assert direct.read_text(encoding="utf-8") == generated.read_text(encoding="utf-8")
+
+
+def test_preview_renders_semantic_scraping_section(tmp_path: Path) -> None:
+    artifact, run_dir, _ = make_artifact(tmp_path)
+    artifact.research.semantic_scraping = SemanticScrapingSection(
+        documents=[
+            SemanticScrapingDocumentSection(
+                id="doc_a",
+                kind="paper",
+                source="openalex",
+                title="A scraped paper",
+                url="https://example.test/a",
+                summary="A summary.",
+                authors=["A. Author"],
+                year=2024,
+                credibility=0.8,
+                credible=True,
+                field_path=["Statistics", "Methods"],
+                critique_verdict="refine",
+                comparisons=2,
+            )
+        ],
+        warnings=["scrape_budget_exhausted"],
+        stats={"documents": 1},
+    )
+
+    text = render_preview(artifact, base_dir=run_dir)
+
+    assert "## Semantic scraping" in text
+    assert "A scraped paper" in text
+    assert "`Statistics` > `Methods`" in text
+    assert "refine" in text
+    assert "scrape_budget_exhausted" in text

@@ -415,6 +415,34 @@ def _mock_fixture(purpose: str) -> dict[str, Any]:
             "summary": "Mock critic result; no method gap was assessed.",
             "retrieved_chunks": ["S0-how-to-use"],
         }
+    if purpose == "document_summary":
+        return {
+            "summary": "A deterministic mock summary of the resource.",
+            "claims": ["A mock claim."],
+            "methods": ["A mock method."],
+            "population": None,
+            "time_period": None,
+            "links": [],
+            "credibility_signals": {
+                "peer_reviewed": True,
+                "publisher": "Mock Publisher",
+                "retracted": False,
+            },
+        }
+    if purpose == "document_comparison":
+        return {
+            "verdict": "supports",
+            "rationale": "Mock comparison result.",
+            "evidence": [],
+        }
+    if purpose == "document_classification":
+        return {
+            "action": "stop",
+            "field_id": None,
+            "name": None,
+            "description": None,
+            "reason": "mock fixture",
+        }
     return {"mock": True, "purpose": purpose}
 
 

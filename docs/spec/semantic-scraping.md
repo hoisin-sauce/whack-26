@@ -1,8 +1,34 @@
 # Semantic scraping implementation plan
 
-Status: forward plan. The 6–8 hour slice deliberately deferred semantic scraping
-and credibility scoring; this document is the follow-on design for the
-`devplan.md` research system. It is not part of the current acceptance gate.
+Status: **implemented on the existing SQLite stack**. The 6–8 hour slice
+originally deferred semantic scraping and credibility scoring; this document is
+the follow-on design from `devplan.md`. The code now lives under
+`whack26/research/scrape/` and is wired into `whack26 run --scrape`, the
+`whack26 scrape` command, and `whack26 preload-statistics`. The mock end-to-end
+path and a 5-document live smoke are validated; the full 20-resource depth-1
+live smoke still depends on provider quota.
+
+## 0. Implemented modules
+
+| Module | Responsibility |
+|---|---|
+| `models.py` | Document, link, comparison, critique, summary, credibility, and scrape-result models |
+| `identity.py` | Canonical URLs, URL/content hashes, metadata/title identities |
+| `store.py` | `DocumentStore` protocol; `FieldStore` is the SQLite implementation |
+| `summarize.py` | Bounded summary prompt/schema, summary validation, summary embedding |
+| `process.py` | Summarize/embed a document, merge links, set status |
+| `links.py` | Extract and canonicalize references, DOIs, arXiv/OpenAlex IDs, URLs |
+| `frontier.py` | Budgeted, target-gated BFS over links/references |
+| `classify.py` | Assign documents into the existing dynamic field tree |
+| `credibility.py` | Deterministic author/venue/source/recency/citation score |
+| `compare.py` | Cached pairwise document comparisons |
+| `preload.py` | Statistics/validity seed corpus |
+| `pipeline.py` | End-to-end semantic-scraping orchestrator |
+| `whack26/critic/document_critic.py` | Method critique for papers/web documents |
+
+Database schema v2 lives in `cache/fields.db`; `cache/research.db` remains the
+raw HTTP cache. The `whack26 schema` command exports the artifact schema at
+`1.1.0`, which includes the optional `research.semantic_scraping` section.
 
 ## 1. What the devplan asks for
 

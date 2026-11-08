@@ -134,6 +134,20 @@ class Settings:
     centroid_weight: float = 0.5
     factor_map_cosine: float = 0.72
 
+    scrape_enabled: bool = False
+    scrape_max_depth: int = 2
+    scrape_max_resources: int = 100
+    scrape_max_links_per_resource: int = 25
+    scrape_max_fetches: int = 100
+    scrape_summary_threshold: float = 0.62
+    scrape_link_threshold: float = 0.68
+    scrape_credibility_threshold: float = 0.50
+    scrape_ttl_days: int = 7
+    scrape_user_agent: str = (
+        "whack26-research/0.1 (https://github.com/hoisin-sauce/whack-26)"
+    )
+    scrape_method_version: str = "1.0.0"
+
     def __post_init__(self) -> None:
         if self.llm_provider not in LLM_PROVIDERS:
             raise ValueError(f"llm_provider must be one of {LLM_PROVIDERS}")
@@ -159,6 +173,24 @@ class Settings:
                 "desc_weight and centroid_weight must sum to 1 "
                 f"(got {self.desc_weight} + {self.centroid_weight} = {weight_total})"
             )
+        if self.scrape_max_depth < 0:
+            raise ValueError("scrape_max_depth must be non-negative")
+        if self.scrape_max_resources <= 0:
+            raise ValueError("scrape_max_resources must be positive")
+        if self.scrape_max_links_per_resource <= 0:
+            raise ValueError("scrape_max_links_per_resource must be positive")
+        if self.scrape_max_fetches <= 0:
+            raise ValueError("scrape_max_fetches must be positive")
+        for name in (
+            "scrape_summary_threshold",
+            "scrape_link_threshold",
+            "scrape_credibility_threshold",
+        ):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be between 0 and 1")
+        if self.scrape_ttl_days <= 0:
+            raise ValueError("scrape_ttl_days must be positive")
 
     @classmethod
     def from_env(
@@ -212,6 +244,31 @@ class Settings:
             desc_weight=_float(env, "WHACK26_DESC_WEIGHT", 0.5),
             centroid_weight=_float(env, "WHACK26_CENTROID_WEIGHT", 0.5),
             factor_map_cosine=_float(env, "WHACK26_FACTOR_MAP_COSINE", 0.72),
+            scrape_enabled=_bool(env, "WHACK26_SCRAPE_ENABLED", False),
+            scrape_max_depth=_int(env, "WHACK26_SCRAPE_MAX_DEPTH", 2),
+            scrape_max_resources=_int(env, "WHACK26_SCRAPE_MAX_RESOURCES", 100),
+            scrape_max_links_per_resource=_int(
+                env, "WHACK26_SCRAPE_MAX_LINKS_PER_RESOURCE", 25
+            ),
+            scrape_max_fetches=_int(env, "WHACK26_SCRAPE_MAX_FETCHES", 100),
+            scrape_summary_threshold=_float(
+                env, "WHACK26_SCRAPE_SUMMARY_THRESHOLD", 0.62
+            ),
+            scrape_link_threshold=_float(env, "WHACK26_SCRAPE_LINK_THRESHOLD", 0.68),
+            scrape_credibility_threshold=_float(
+                env, "WHACK26_SCRAPE_CREDIBILITY_THRESHOLD", 0.50
+            ),
+            scrape_ttl_days=_int(env, "WHACK26_SCRAPE_TTL_DAYS", 7),
+            scrape_user_agent=_get(
+                env,
+                "WHACK26_SCRAPE_USER_AGENT",
+                "whack26-research/0.1 (https://github.com/hoisin-sauce/whack-26)",
+            )
+            or "whack26-research/0.1 (https://github.com/hoisin-sauce/whack-26)",
+            scrape_method_version=_get(
+                env, "WHACK26_SCRAPE_METHOD_VERSION", "1.0.0"
+            )
+            or "1.0.0",
         )
         if settings.top_k <= 0:
             raise ValueError("WHACK26_TOP_K must be positive")
@@ -228,6 +285,10 @@ class Settings:
     @property
     def research_db(self) -> Path:
         return self.cache_dir / "research.db"
+
+    @property
+    def scrape_ttl_seconds(self) -> int:
+        return int(self.scrape_ttl_days * 86400)
 
     def with_overrides(self, **changes: object) -> "Settings":
         return replace(self, **changes)

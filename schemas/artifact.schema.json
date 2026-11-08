@@ -858,6 +858,17 @@
           },
           "title": "Warnings",
           "type": "array"
+        },
+        "semantic_scraping": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticScrapingSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "title": "ResearchSection",
@@ -951,6 +962,244 @@
       "title": "ScreenSection",
       "type": "object"
     },
+    "SemanticScrapingComparisonSection": {
+      "properties": {
+        "left_id": {
+          "title": "Left Id",
+          "type": "string"
+        },
+        "right_id": {
+          "title": "Right Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "verdict": {
+          "default": "insufficient",
+          "title": "Verdict",
+          "type": "string"
+        },
+        "similarity": {
+          "default": 0.0,
+          "title": "Similarity",
+          "type": "number"
+        }
+      },
+      "required": [
+        "left_id",
+        "right_id",
+        "kind"
+      ],
+      "title": "SemanticScrapingComparisonSection",
+      "type": "object"
+    },
+    "SemanticScrapingCritiqueSection": {
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "verdict": {
+          "title": "Verdict",
+          "type": "string"
+        },
+        "corpus_version": {
+          "title": "Corpus Version",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "verdict",
+        "corpus_version"
+      ],
+      "title": "SemanticScrapingCritiqueSection",
+      "type": "object"
+    },
+    "SemanticScrapingDocumentSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "authors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authors",
+          "type": "array"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        },
+        "credibility": {
+          "default": 0.0,
+          "title": "Credibility",
+          "type": "number"
+        },
+        "credible": {
+          "default": false,
+          "title": "Credible",
+          "type": "boolean"
+        },
+        "field_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Field Path",
+          "type": "array"
+        },
+        "critique_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Critique Verdict"
+        },
+        "comparisons": {
+          "default": 0,
+          "title": "Comparisons",
+          "type": "integer"
+        },
+        "preloaded": {
+          "default": false,
+          "title": "Preloaded",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "title"
+      ],
+      "title": "SemanticScrapingDocumentSection",
+      "type": "object"
+    },
+    "SemanticScrapingLinkSection": {
+      "properties": {
+        "from_id": {
+          "title": "From Id",
+          "type": "string"
+        },
+        "to_id": {
+          "title": "To Id",
+          "type": "string"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_id",
+        "to_id",
+        "relation"
+      ],
+      "title": "SemanticScrapingLinkSection",
+      "type": "object"
+    },
+    "SemanticScrapingSection": {
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "documents": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingDocumentSection"
+          },
+          "title": "Documents",
+          "type": "array"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingLinkSection"
+          },
+          "title": "Links",
+          "type": "array"
+        },
+        "comparisons": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingComparisonSection"
+          },
+          "title": "Comparisons",
+          "type": "array"
+        },
+        "critiques": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingCritiqueSection"
+          },
+          "title": "Critiques",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "stats": {
+          "additionalProperties": true,
+          "title": "Stats",
+          "type": "object"
+        }
+      },
+      "title": "SemanticScrapingSection",
+      "type": "object"
+    },
     "TargetSection": {
       "properties": {
         "name": {
@@ -977,8 +1226,7 @@
   },
   "properties": {
     "schema_version": {
-      "const": "1.0.0",
-      "default": "1.0.0",
+      "default": "1.1.0",
       "title": "Schema Version",
       "type": "string"
     },

@@ -50,6 +50,8 @@ runs/demo/
   dataset.csv
   research.json
   factors.json
+  scrape.json       # when --scrape is enabled
+  scrape.md         # when --scrape is enabled
   hypotheses/<hyp_id>.py
   predictions/<hyp_id>.csv
   logs/run.log
@@ -67,6 +69,43 @@ python -m whack26 run `
   --target body_mass_g `
   --out runs/penguins
 ```
+
+## Semantic scraping
+
+Semantic scraping is opt-in. It expands the one-hop research records through
+API references and links, summarizes and embeds each document, classifies it
+into the existing field tree, scores credibility, caches comparisons, and runs
+the document method critic.
+
+```powershell
+# Full run with scraping enabled
+python -m whack26 run `
+  --input data/california_housing.csv `
+  --target median_house_value `
+  --scrape `
+  --out runs/demo-scrape
+
+# Scraping-only inspection command
+python -m whack26 scrape `
+  --input data/california_housing.csv `
+  --target median_house_value `
+  --max-resources 50 `
+  --max-depth 2 `
+  --out runs/scrape-demo
+
+# Preload the statistics/validity corpus
+python -m whack26 preload-statistics --limit 100
+```
+
+The SQLite v2 knowledge store lives in `cache/fields.db` and holds `documents`
+(Dataset/Search/Paper/Web), `document_links`, `document_fields`,
+`document_comparisons`, `document_critiques`, and `document_fetches`.
+`cache/research.db` remains the raw HTTP cache. Scraping writes
+`scrape.json` into the run directory and adds the optional
+`research.semantic_scraping` section to `artifact.json` (schema `1.1.0`).
+
+The mock end-to-end path is covered by the test suite. The live smoke is still
+pending provider quota; the planned seed is OpenAlex references at depth 1.
 
 ## Acceptance checks
 
@@ -108,6 +147,7 @@ held-out predictions with an R-squared metric.
 ## Documentation
 
 - [`docs/spec/README.md`](docs/spec/README.md): spec index and component boundaries
+- [`docs/spec/semantic-scraping.md`](docs/spec/semantic-scraping.md): document catalog, SQLite v2 migration, frontier, credibility, comparisons, preload
 - [`docs/spec/demo-runbook.md`](docs/spec/demo-runbook.md): demo dataset, commands, fallbacks
 - [`docs/eval/hypothesis-smoke.md`](docs/eval/hypothesis-smoke.md): live step-4 results and fixes
 - [`docs/eval/research-smoke.md`](docs/eval/research-smoke.md): live step-3 research results
@@ -116,7 +156,7 @@ held-out predictions with an R-squared metric.
 
 ## Status
 
-Steps 1-4 are implemented and tested (341 tests). The two-dataset live demo is
+Steps 1-4 are implemented and tested (486 tests). The two-dataset live demo is
 complete. The full ten-dataset live field-classification gate is still pending
 provider quota, and its human-score gates require a completed
 `eval/scores.json` filled in by a human reviewer.

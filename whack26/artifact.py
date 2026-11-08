@@ -9,7 +9,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-from pydantic import BaseModel, Field as PField, ValidationError
+from pydantic import BaseModel, Field as PField, ValidationError, field_validator
 
 from .classify import FieldPath
 from .critic.models import CriticResult
@@ -18,9 +18,10 @@ from .hypotheses.generate import GeneratedHypothesis
 from .ids import factor_id
 from .profile import DatasetProfile
 from .research.pipeline import ResearchResult
+from .research.scrape.models import ScrapeResult
 from .screen import ScreenSummary
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 _ABSOLUTE_MARKERS = ("/", "\\")
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("google_api_key", re.compile(r"AIza[0-9A-Za-z_\-]{20,}")),
@@ -114,6 +115,57 @@ class ResearchSection(BaseModel):
     limited_mode: bool = False
     offline: bool = False
     warnings: list[str] = PField(default_factory=list)
+    semantic_scraping: "SemanticScrapingSection | None" = None
+
+
+class SemanticScrapingDocumentSection(BaseModel):
+    id: str
+    kind: str
+    source: str
+    title: str
+    url: str | None = None
+    summary: str = ""
+    authors: list[str] = PField(default_factory=list)
+    year: int | None = None
+    credibility: float = 0.0
+    credible: bool = False
+    field_path: list[str] = PField(default_factory=list)
+    critique_verdict: str | None = None
+    comparisons: int = 0
+    preloaded: bool = False
+
+
+class SemanticScrapingLinkSection(BaseModel):
+    from_id: str
+    to_id: str
+    relation: str
+
+
+class SemanticScrapingComparisonSection(BaseModel):
+    left_id: str
+    right_id: str
+    kind: str
+    verdict: str = "insufficient"
+    similarity: float = 0.0
+
+
+class SemanticScrapingCritiqueSection(BaseModel):
+    document_id: str
+    verdict: str
+    corpus_version: str
+    summary: str = ""
+
+
+class SemanticScrapingSection(BaseModel):
+    enabled: bool = True
+    documents: list[SemanticScrapingDocumentSection] = PField(default_factory=list)
+    links: list[SemanticScrapingLinkSection] = PField(default_factory=list)
+    comparisons: list[SemanticScrapingComparisonSection] = PField(
+        default_factory=list
+    )
+    critiques: list[SemanticScrapingCritiqueSection] = PField(default_factory=list)
+    warnings: list[str] = PField(default_factory=list)
+    stats: dict[str, Any] = PField(default_factory=dict)
 
 
 class FactorMapping(BaseModel):
@@ -219,7 +271,7 @@ class Provenance(BaseModel):
 
 
 class Artifact(BaseModel):
-    schema_version: Literal["1.0.0"] = SCHEMA_VERSION
+    schema_version: str = SCHEMA_VERSION
     run: RunInfo
     dataset: DatasetSection
     classification: ClassificationSection
@@ -230,6 +282,13 @@ class Artifact(BaseModel):
     critic_summary: CriticSummary
     warnings: list[str] = PField(default_factory=list)
     provenance: Provenance
+
+    @field_validator("schema_version")
+    @classmethod
+    def _check_schema_version(cls, value: str) -> str:
+        if not re.fullmatch(r"\d+\.\d+\.\d+", value):
+            raise ValueError("schema_version must be a semantic version")
+        return value
 
 
 def _dataset_section(profile: DatasetProfile) -> DatasetSection:
@@ -282,7 +341,91 @@ def _classification_section(path: FieldPath) -> ClassificationSection:
     )
 
 
-def _research_section(research: ResearchResult) -> ResearchSection:
+def _year_from(value: str | None) -> int | None:
+    if not value:
+        return None
+    match = re.match(r"(\d{4})", str(value))
+    return int(match.group(1)) if match else None
+
+
+def _semantic_scraping_section(
+    scrape: ScrapeResult | None,
+) -> SemanticScrapingSection | None:
+    if scrape is None:
+        return None
+    critique_by_document = {
+        critique.document_id: critique for critique in scrape.critiques
+    }
+    comparison_counts: dict[str, int] = {}
+    for comparison in scrape.comparisons:
+        comparison_counts[comparison.left_id] = (
+            comparison_counts.get(comparison.left_id, 0) + 1
+        )
+        comparison_counts[comparison.right_id] = (
+            comparison_counts.get(comparison.right_id, 0) + 1
+        )
+    documents: list[SemanticScrapingDocumentSection] = []
+    for document in scrape.documents:
+        field_path = document.metadata.get("field_path", [])
+        if not isinstance(field_path, list):
+            field_path = []
+        critique = critique_by_document.get(document.id)
+        documents.append(
+            SemanticScrapingDocumentSection(
+                id=document.id,
+                kind=document.kind,
+                source=document.source,
+                title=document.title,
+                url=document.canonical_url,
+                summary=document.summary,
+                authors=list(document.authors),
+                year=_year_from(document.published_at),
+                credibility=float(document.credibility_score),
+                credible=bool(document.credible),
+                field_path=[str(item) for item in field_path],
+                critique_verdict=critique.verdict if critique else None,
+                comparisons=comparison_counts.get(document.id, 0),
+                preloaded=bool(document.preloaded),
+            )
+        )
+    return SemanticScrapingSection(
+        enabled=True,
+        documents=documents,
+        links=[
+            SemanticScrapingLinkSection(
+                from_id=link.from_id,
+                to_id=link.to_id,
+                relation=link.relation,
+            )
+            for link in scrape.links
+        ],
+        comparisons=[
+            SemanticScrapingComparisonSection(
+                left_id=comparison.left_id,
+                right_id=comparison.right_id,
+                kind=comparison.kind,
+                verdict=comparison.verdict,
+                similarity=float(comparison.similarity),
+            )
+            for comparison in scrape.comparisons
+        ],
+        critiques=[
+            SemanticScrapingCritiqueSection(
+                document_id=critique.document_id,
+                verdict=critique.verdict,
+                corpus_version=critique.corpus_version,
+                summary=critique.summary,
+            )
+            for critique in scrape.critiques
+        ],
+        warnings=list(scrape.warnings),
+        stats=dict(scrape.stats),
+    )
+
+
+def _research_section(
+    research: ResearchResult, scrape: ScrapeResult | None = None
+) -> ResearchSection:
     return ResearchSection(
         queries=[
             QuerySection(
@@ -300,6 +443,7 @@ def _research_section(research: ResearchResult) -> ResearchSection:
         limited_mode=research.limited_mode,
         offline=research.offline,
         warnings=list(research.warnings),
+        semantic_scraping=_semantic_scraping_section(scrape),
     )
 
 
@@ -396,6 +540,7 @@ def build_artifact(
     warnings: Sequence[str],
     corpus_version: str | None,
     base_dir: Path,
+    scrape: ScrapeResult | None = None,
 ) -> Artifact:
     """Assemble and validate the artifact from completed stage outputs."""
     by_id = {critic.hypothesis_id: critic for critic in critics}
@@ -422,7 +567,7 @@ def build_artifact(
         run=run,
         dataset=_dataset_section(profile),
         classification=_classification_section(classification),
-        research=_research_section(research),
+        research=_research_section(research, scrape),
         factors=_factor_sections(factors, profile),
         screen=_screen_section(screen),
         hypotheses=[
@@ -478,9 +623,9 @@ def validate_artifact(
         return None, ["artifact must be a JSON object"]
     major = str(payload.get("schema_version", "")).split(".")[0]
     if major not in {"1"}:
-        errors.append(
+        return None, [
             f"unknown schema major {major!r}; this tool supports schema 1.x"
-        )
+        ]
     try:
         artifact = Artifact.model_validate(payload)
     except ValidationError as exc:

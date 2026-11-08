@@ -90,7 +90,48 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--offline", action="store_true", help="read research from cache only")
     run.add_argument("--refresh", action="store_true", help="ignore cache TTL")
     run.add_argument("--seed", type=int, default=0, help="random seed for generated code")
+    run.add_argument(
+        "--scrape",
+        action="store_true",
+        help="enable semantic scraping of research documents",
+    )
     run.set_defaults(func=_cmd_run)
+
+    scrape = sub.add_parser(
+        "scrape",
+        help="run the pipeline with semantic scraping enabled",
+    )
+    scrape.add_argument("--input", required=True, help="pandas-readable dataset path")
+    scrape.add_argument("--description", default=None)
+    scrape.add_argument("--target", default=None)
+    scrape.add_argument("--csv-sep", default=",", help="CSV separator (default: comma)")
+    scrape.add_argument("--out", default=None, help="run directory")
+    scrape.add_argument(
+        "--db",
+        default=None,
+        help="field store path (default: cache/fields.db)",
+    )
+    scrape.add_argument("--mock", action="store_true")
+    scrape.add_argument("--offline", action="store_true")
+    scrape.add_argument("--refresh", action="store_true")
+    scrape.add_argument("--seed", type=int, default=0)
+    scrape.add_argument("--max-resources", type=int, default=None)
+    scrape.add_argument("--max-depth", type=int, default=None)
+    scrape.set_defaults(func=_cmd_scrape)
+
+    preload = sub.add_parser(
+        "preload-statistics",
+        help="preload the statistics/validity corpus into the document store",
+    )
+    preload.add_argument("--limit", type=int, default=200)
+    preload.add_argument(
+        "--db",
+        default=None,
+        help="field store path (default: cache/fields.db)",
+    )
+    preload.add_argument("--mock", action="store_true")
+    preload.add_argument("--offline", action="store_true")
+    preload.set_defaults(func=_cmd_preload_statistics)
 
     prefetch = sub.add_parser("prefetch", help="warm the research cache for a dataset")
     prefetch.add_argument("--input", required=True, help="pandas-readable dataset path")
@@ -273,6 +314,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             mock=args.mock,
             offline=args.offline,
             refresh=args.refresh,
+            scrape=True if args.scrape else None,
             csv_sep=args.csv_sep,
             out_dir=Path(args.out) if args.out else None,
             store_path=Path(args.db) if args.db else None,
@@ -306,8 +348,126 @@ def _cmd_run(args: argparse.Namespace) -> int:
             f"hypothesis: {hypothesis.id} {hypothesis.method_family} "
             f"{hypothesis.execution.status} critic={verdict}"
         )
+    if outcome.scrape is not None:
+        print(
+            f"scrape: {len(outcome.scrape.documents)} document(s), "
+            f"{len(outcome.scrape.comparisons)} comparison(s), "
+            f"{len(outcome.scrape.critiques)} critique(s)"
+        )
+        if outcome.scrape_md_path is not None:
+            print(f"scrape markdown: {outcome.scrape_md_path}")
     print(f"artifact: {outcome.artifact_path}")
     print(f"preview: {outcome.preview_path}")
+    return 0
+
+
+def _cmd_scrape(args: argparse.Namespace) -> int:
+    settings = Settings.from_env(
+        mock=args.mock, offline=True if args.offline else None
+    )
+    overrides: dict[str, object] = {"scrape_enabled": True}
+    if args.max_resources is not None:
+        overrides["scrape_max_resources"] = args.max_resources
+    if args.max_depth is not None:
+        overrides["scrape_max_depth"] = args.max_depth
+    settings = settings.with_overrides(**overrides)
+    try:
+        outcome = run_pipeline(
+            input_path=Path(args.input),
+            description=args.description,
+            target=args.target,
+            seed=args.seed,
+            offline=args.offline,
+            refresh=args.refresh,
+            scrape=True,
+            csv_sep=args.csv_sep,
+            out_dir=Path(args.out) if args.out else None,
+            store_path=Path(args.db) if args.db else None,
+            settings=settings,
+            log=print,
+        )
+    except (
+        IngestError,
+        ClassificationError,
+        FieldStoreError,
+        LLMError,
+        EmbeddingError,
+        HypothesisGenerationError,
+        CorpusError,
+        RunError,
+        OSError,
+        ValueError,
+    ) as exc:
+        print(f"error: scrape failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
+    scrape = outcome.scrape
+    print(f"run: {outcome.run_dir}")
+    if scrape is None:
+        print("scrape: no result")
+        return 0
+    print(
+        f"scrape: {len(scrape.documents)} document(s), "
+        f"{len(scrape.links)} link(s), "
+        f"{len(scrape.comparisons)} comparison(s), "
+        f"{len(scrape.critiques)} critique(s)"
+    )
+    for document in scrape.documents[:10]:
+        print(
+            f"document: {document.id} {document.kind} "
+            f"credible={document.credible} score={document.credibility_score:.2f} "
+            f"{document.title}"
+        )
+    for warning in scrape.warnings:
+        print(f"warning: {warning}")
+    print(f"scrape json: {outcome.run_dir / 'scrape.json'}")
+    if outcome.scrape_md_path is not None:
+        print(f"scrape markdown: {outcome.scrape_md_path}")
+    print(f"artifact: {outcome.artifact_path}")
+    return 0
+
+
+def _cmd_preload_statistics(args: argparse.Namespace) -> int:
+    settings = Settings.from_env(
+        mock=args.mock, offline=True if args.offline else None
+    )
+    from .research.scrape.preload import preload_statistics
+
+    llm = build_llm_client(settings)
+    embeddings = build_embedding_client(settings)
+    try:
+        with FieldStore(
+            Path(args.db) if args.db else settings.fields_db,
+            dims=settings.embed_dims,
+            max_depth=settings.max_depth,
+        ) as store:
+            result = preload_statistics(
+                store=store,
+                llm=llm,
+                embeddings=embeddings,
+                settings=settings,
+                limit=args.limit,
+            )
+    except (LLMError, EmbeddingError, FieldStoreError, OSError, ValueError) as exc:
+        print(
+            f"error: preload failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        for client in (llm, embeddings):
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
+
+    print(
+        f"preload: {len(result.documents)} document(s), "
+        f"{len(result.warnings)} warning(s)"
+    )
+    for warning in result.warnings:
+        print(f"warning: {warning}")
+    for key, value in sorted(result.stats.items()):
+        print(f"{key}: {value}")
     return 0
 
 

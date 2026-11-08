@@ -43,6 +43,30 @@ _Avoid_: Tagging, labeling, clustering
 A normalized paper, dataset, or web result fetched from a source, identified by `source:source_id`, with title, abstract or summary, authors, year, DOI/URL, license, query, and retrieval time.
 _Avoid_: Document, source
 
+**Document**:
+A catalogued Dataset, Search, Paper, or Web resource in the SQLite v2 knowledge store. It has a standardized summary, a summary embedding, authors/publisher metadata, a credibility score, optional field assignments, and to/from links.
+_Avoid_: Resource (in code and schema), record
+
+**Semantic scraping**:
+Target-gated expansion from seed research records through API references and links. A high-similarity parent contributes all its links; a lower-similarity parent contributes only links whose own summaries pass a tighter threshold. Budgets and robots rules bound the crawl.
+_Avoid_: Crawling, scraping (unqualified)
+
+**Document link**:
+A directed relation between two documents — `references`, `cites`, `linked_from`, `same_as`, `dataset_paper`, or `search_result`.
+_Avoid_: Edge, citation
+
+**Credibility score**:
+A deterministic, decomposable score over author, venue, source type, recency, and citations, with penalties for retraction, predatory venues, and missing dates. Low-credibility documents are stored but excluded as evidence.
+_Avoid_: Trust score, ranking
+
+**Document comparison**:
+A cached pairwise judgement between two documents (`dataset_relevance`, `method_overlap`, `finding_agreement`, `population_overlap`, or `contradiction`) with a verdict, similarity, rationale, and evidence. Reused until an embedding or method version changes.
+_Avoid_: Diff, match
+
+**Preloaded statistics corpus**:
+The layer-1 documents fetched from the 13 statistics/validity seed queries and classified under `Statistics and Validity`. They augment the static pitfalls corpus for method critique and hypothesis context.
+_Avoid_: Training set, taxonomy
+
 **Factor**:
 A candidate determinant or correlate extracted from research records, with a description, direction, claim type, and evidence IDs. A factor may or may not map to a dataset column.
 _Avoid_: Feature, variable

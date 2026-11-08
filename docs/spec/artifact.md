@@ -24,7 +24,7 @@ All paths inside the artifact are relative to the run directory. `dataset.source
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "run": {
     "run_id": "run_20261107T213000Z_a1b2c3d4",
     "started_at": "2026-11-07T21:30:00Z",
@@ -94,7 +94,48 @@ All paths inside the artifact are relative to the run directory. `dataset.source
       }
     ],
     "cache": {"hits": 4, "misses": 2, "offline": false},
-    "limited_mode": false
+    "limited_mode": false,
+    "semantic_scraping": {
+      "enabled": true,
+      "documents": [
+        {
+          "id": "doc_a1b2c3d4e5f6",
+          "kind": "paper",
+          "source": "openalex",
+          "title": "…",
+          "url": "https://…",
+          "summary": "…",
+          "authors": ["…"],
+          "year": 2024,
+          "credibility": 0.78,
+          "credible": true,
+          "field_path": ["Statistics and Validity", "…"],
+          "critique_verdict": "refine",
+          "comparisons": 3,
+          "preloaded": false
+        }
+      ],
+      "links": [{"from_id": "doc_…", "to_id": "doc_…", "relation": "references"}],
+      "comparisons": [
+        {
+          "left_id": "doc_…",
+          "right_id": "doc_…",
+          "kind": "method_overlap",
+          "verdict": "supports",
+          "similarity": 0.81
+        }
+      ],
+      "critiques": [
+        {
+          "document_id": "doc_…",
+          "verdict": "refine",
+          "corpus_version": "1.0.0+…",
+          "summary": "…"
+        }
+      ],
+      "warnings": ["scrape_budget_exhausted"],
+      "stats": {"documents": 42, "credible": 31}
+    }
   },
   "factors": [
     {
@@ -220,6 +261,7 @@ They can import the module and call `applies`/`run`, or use the saved prediction
 ## Versioning
 
 - `schema_version` is semver. Breaking changes bump the major.
+- `1.1.0` adds the optional `research.semantic_scraping` section; `1.0.0` artifacts remain valid.
 - Consumers must reject an unknown major and warn on an unknown minor.
 - `schemas/artifact.schema.json` is generated from the Pydantic model and checked into the repo.
 - `corpus_version` and `tool_version` are separate from the schema.

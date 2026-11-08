@@ -20,6 +20,7 @@ from .artifact import (
     ResearchRecordSection,
 )
 from .common import redact_secrets
+from .research.scrape.models import ScrapeResult
 
 _MAX_RESEARCH_RECORDS = 10
 _MAX_COLUMNS = 12
@@ -264,6 +265,62 @@ def _research_section(artifact: Artifact) -> list[str]:
     return lines
 
 
+def _semantic_scraping_section(artifact: Artifact) -> list[str]:
+    scraping = artifact.research.semantic_scraping
+    if scraping is None:
+        return []
+    lines = ["## Semantic scraping", ""]
+    lines.append(
+        f"- Documents: {len(scraping.documents)} | "
+        f"links: {len(scraping.links)} | "
+        f"comparisons: {len(scraping.comparisons)} | "
+        f"critiques: {len(scraping.critiques)}"
+    )
+    if scraping.stats:
+        stats = ", ".join(
+            f"{_text(key)}={_number(value)}"
+            for key, value in sorted(scraping.stats.items())
+        )
+        lines.append(f"- Stats: {stats}")
+    lines.append("")
+    credible = [item for item in scraping.documents if item.credible]
+    shown = (credible or scraping.documents)[:_MAX_RESEARCH_RECORDS]
+    if not shown:
+        lines.append("No scraped documents were recorded.")
+    else:
+        lines.append("| Document | Kind | Field path | Credibility | Critique | Comparisons |")
+        lines.append("|---|---|---|---:|---|---:|")
+        for document in shown:
+            field_path = " > ".join(
+                f"`{_text(item)}`" for item in document.field_path
+            ) or "unassigned"
+            critique = document.critique_verdict or "none"
+            lines.append(
+                f"| [{_text(document.title)}]({document.url}) | "
+                f"{_text(document.kind)} | {field_path} | "
+                f"{_number(document.credibility, 2)} | {_text(critique)} | "
+                f"{document.comparisons:,} |"
+                if document.url
+                else (
+                    f"| {_text(document.title)} | {_text(document.kind)} | "
+                    f"{field_path} | {_number(document.credibility, 2)} | "
+                    f"{_text(critique)} | {document.comparisons:,} |"
+                )
+            )
+        if len(credible or scraping.documents) > _MAX_RESEARCH_RECORDS:
+            lines.append("")
+            lines.append(
+                f"_{len(credible or scraping.documents) - _MAX_RESEARCH_RECORDS} "
+                "more documents are recorded in the artifact._"
+            )
+    if scraping.warnings:
+        lines.append("")
+        lines.append("Warnings:")
+        lines.extend(f"- {_text(item)}" for item in scraping.warnings)
+    lines.append("")
+    return lines
+
+
 def _factors_section(artifact: Artifact) -> list[str]:
     lines = ["## Factors", ""]
     if not artifact.factors:
@@ -455,6 +512,76 @@ def _provenance_section(artifact: Artifact) -> list[str]:
     return lines
 
 
+def render_scrape_preview(scrape: ScrapeResult) -> str:
+    """Render a compact standalone Markdown report for a scrape result."""
+    credible = [document for document in scrape.documents if document.credible]
+    critique_by_document = {
+        critique.document_id: critique for critique in scrape.critiques
+    }
+    comparison_counts: dict[str, int] = {}
+    for comparison in scrape.comparisons:
+        comparison_counts[comparison.left_id] = (
+            comparison_counts.get(comparison.left_id, 0) + 1
+        )
+        comparison_counts[comparison.right_id] = (
+            comparison_counts.get(comparison.right_id, 0) + 1
+        )
+
+    lines = [
+        "# Semantic scraping",
+        "",
+        f"- Documents: {len(scrape.documents)} | credible: {len(credible)} | "
+        f"links: {len(scrape.links)} | comparisons: {len(scrape.comparisons)} | "
+        f"critiques: {len(scrape.critiques)}",
+    ]
+    if scrape.stats:
+        lines.append(
+            "- Stats: "
+            + ", ".join(
+                f"{_text(key)}={_number(value)}"
+                for key, value in sorted(scrape.stats.items())
+            )
+        )
+    lines.append("")
+    shown = (credible or scrape.documents)[:20]
+    if not shown:
+        lines.append("No documents were recorded.")
+    else:
+        lines.append(
+            "| Document | Kind | Field path | Credibility | Critique | Comparisons |"
+        )
+        lines.append("|---|---|---|---:|---|---:|")
+        for document in shown:
+            field_path = document.metadata.get("field_path", [])
+            if not isinstance(field_path, list):
+                field_path = []
+            path = " > ".join(f"`{_text(item)}`" for item in field_path) or "unassigned"
+            critique = critique_by_document.get(document.id)
+            verdict = critique.verdict if critique else "none"
+            title = (
+                f"[{_text(document.title)}]({document.canonical_url})"
+                if document.canonical_url
+                else _text(document.title)
+            )
+            lines.append(
+                f"| {title} | {_text(document.kind)} | {path} | "
+                f"{_number(document.credibility_score, 2)} | {_text(verdict)} | "
+                f"{comparison_counts.get(document.id, 0):,} |"
+            )
+        if len(credible or scrape.documents) > 20:
+            lines.append("")
+            lines.append(
+                f"_{len(credible or scrape.documents) - 20} more documents are "
+                "recorded in scrape.json._"
+            )
+    if scrape.warnings:
+        lines.append("")
+        lines.append("## Warnings")
+        lines.append("")
+        lines.extend(f"- {_text(warning)}" for warning in scrape.warnings)
+    return "\n".join(lines) + "\n"
+
+
 def render_preview(artifact: Artifact, *, base_dir: Path) -> str:
     """Render the full Markdown preview. Paths are relative to ``base_dir``."""
     run = artifact.run
@@ -471,6 +598,7 @@ def render_preview(artifact: Artifact, *, base_dir: Path) -> str:
     lines.extend(_dataset_section(artifact))
     lines.extend(_field_path_section(artifact))
     lines.extend(_research_section(artifact))
+    lines.extend(_semantic_scraping_section(artifact))
     lines.extend(_factors_section(artifact))
     lines.extend(_hypotheses_section(artifact, base_dir))
     lines.extend(_critic_section(artifact))
