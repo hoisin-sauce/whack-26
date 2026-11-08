@@ -1,0 +1,1039 @@
+{
+  "$defs": {
+    "ClassificationSection": {
+      "properties": {
+        "path": {
+          "items": {
+            "$ref": "#/$defs/FieldSection"
+          },
+          "title": "Path",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "created_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Created Fields",
+          "type": "array"
+        },
+        "refined_after_research": {
+          "default": false,
+          "title": "Refined After Research",
+          "type": "boolean"
+        },
+        "refinement_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refinement Reason"
+        }
+      },
+      "title": "ClassificationSection",
+      "type": "object"
+    },
+    "CorrelationSection": {
+      "properties": {
+        "a": {
+          "title": "A",
+          "type": "string"
+        },
+        "b": {
+          "title": "B",
+          "type": "string"
+        },
+        "pearson": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pearson"
+        },
+        "spearman": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spearman"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "title": "CorrelationSection",
+      "type": "object"
+    },
+    "CriticCheckSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "severity": {
+          "default": "none",
+          "title": "Severity",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Citations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "title": "CriticCheckSection",
+      "type": "object"
+    },
+    "CriticIssueSection": {
+      "properties": {
+        "chunk": {
+          "title": "Chunk",
+          "type": "string"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "finding": {
+          "title": "Finding",
+          "type": "string"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        },
+        "fix": {
+          "default": "",
+          "title": "Fix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chunk",
+        "severity",
+        "finding"
+      ],
+      "title": "CriticIssueSection",
+      "type": "object"
+    },
+    "CriticSection": {
+      "properties": {
+        "claim_type": {
+          "title": "Claim Type",
+          "type": "string"
+        },
+        "verdict": {
+          "title": "Verdict",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/CriticIssueSection"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "missing_information": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Information",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/CriticCheckSection"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "retrieved_chunks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Retrieved Chunks",
+          "type": "array"
+        },
+        "model": {
+          "default": "unknown",
+          "title": "Model",
+          "type": "string"
+        },
+        "corpus_version": {
+          "default": "unknown",
+          "title": "Corpus Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_type",
+        "verdict"
+      ],
+      "title": "CriticSection",
+      "type": "object"
+    },
+    "CriticSummary": {
+      "properties": {
+        "verdicts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Verdicts",
+          "type": "object"
+        },
+        "degraded": {
+          "default": false,
+          "title": "Degraded",
+          "type": "boolean"
+        }
+      },
+      "title": "CriticSummary",
+      "type": "object"
+    },
+    "DatasetColumn": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "dtype": {
+          "title": "Dtype",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "missing_pct": {
+          "title": "Missing Pct",
+          "type": "number"
+        },
+        "cardinality": {
+          "title": "Cardinality",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "dtype",
+        "role",
+        "missing_pct",
+        "cardinality"
+      ],
+      "title": "DatasetColumn",
+      "type": "object"
+    },
+    "DatasetSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "stored_path": {
+          "default": "dataset.csv",
+          "title": "Stored Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "rows": {
+          "title": "Rows",
+          "type": "integer"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "time_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Column"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/DatasetColumn"
+          },
+          "title": "Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source_path",
+        "sha256",
+        "format",
+        "rows"
+      ],
+      "title": "DatasetSection",
+      "type": "object"
+    },
+    "ExecutionSection": {
+      "properties": {
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "runtime_ms": {
+          "default": 0,
+          "title": "Runtime Ms",
+          "type": "integer"
+        },
+        "n_predictions": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Predictions"
+        },
+        "predictions_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predictions Path"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ExecutionSection",
+      "type": "object"
+    },
+    "FactorMapping": {
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "in_dataset": {
+          "default": false,
+          "title": "In Dataset",
+          "type": "boolean"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "title": "FactorMapping",
+      "type": "object"
+    },
+    "FactorSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "claim_type": {
+          "title": "Claim Type",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "mapping": {
+          "$ref": "#/$defs/FactorMapping"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "direction",
+        "claim_type"
+      ],
+      "title": "FactorSection",
+      "type": "object"
+    },
+    "FieldSection": {
+      "properties": {
+        "field_id": {
+          "title": "Field Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "level": {
+          "title": "Level",
+          "type": "integer"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field_id",
+        "name",
+        "level",
+        "description"
+      ],
+      "title": "FieldSection",
+      "type": "object"
+    },
+    "HypothesisSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "method_family": {
+          "title": "Method Family",
+          "type": "string"
+        },
+        "claim_type": {
+          "title": "Claim Type",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "required_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Columns",
+          "type": "array"
+        },
+        "optional_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Columns",
+          "type": "array"
+        },
+        "min_rows": {
+          "default": 1,
+          "title": "Min Rows",
+          "type": "integer"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "factors_used": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Factors Used",
+          "type": "array"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "code_path": {
+          "title": "Code Path",
+          "type": "string"
+        },
+        "code_sha256": {
+          "title": "Code Sha256",
+          "type": "string"
+        },
+        "generation_history": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Generation History",
+          "type": "array"
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionSection"
+        },
+        "critic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CriticSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "method_family",
+        "claim_type",
+        "code_path",
+        "code_sha256",
+        "execution"
+      ],
+      "title": "HypothesisSection",
+      "type": "object"
+    },
+    "Provenance": {
+      "properties": {
+        "python": {
+          "title": "Python",
+          "type": "string"
+        },
+        "packages": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Packages",
+          "type": "object"
+        },
+        "corpus_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Corpus Version"
+        },
+        "git_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Commit"
+        }
+      },
+      "required": [
+        "python"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "QuerySection": {
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "query"
+      ],
+      "title": "QuerySection",
+      "type": "object"
+    },
+    "ResearchRecordSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "abstract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstract"
+        },
+        "authors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authors",
+          "type": "array"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doi"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License"
+        },
+        "retrieved_at": {
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "relevance": {
+          "default": 0.0,
+          "title": "Relevance",
+          "type": "number"
+        },
+        "also_seen_in": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Also Seen In",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "source_id",
+        "title",
+        "url",
+        "retrieved_at",
+        "query"
+      ],
+      "title": "ResearchRecordSection",
+      "type": "object"
+    },
+    "ResearchSection": {
+      "properties": {
+        "queries": {
+          "items": {
+            "$ref": "#/$defs/QuerySection"
+          },
+          "title": "Queries",
+          "type": "array"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/ResearchRecordSection"
+          },
+          "title": "Records",
+          "type": "array"
+        },
+        "cache": {
+          "additionalProperties": true,
+          "title": "Cache",
+          "type": "object"
+        },
+        "limited_mode": {
+          "default": false,
+          "title": "Limited Mode",
+          "type": "boolean"
+        },
+        "offline": {
+          "default": false,
+          "title": "Offline",
+          "type": "boolean"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "ResearchSection",
+      "type": "object"
+    },
+    "RunInfo": {
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "string"
+        },
+        "finished_at": {
+          "title": "Finished At",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "live",
+            "mock"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "tool_version": {
+          "title": "Tool Version",
+          "type": "string"
+        },
+        "models": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Models",
+          "type": "object"
+        }
+      },
+      "required": [
+        "run_id",
+        "started_at",
+        "finished_at",
+        "mode",
+        "seed",
+        "tool_version",
+        "models"
+      ],
+      "title": "RunInfo",
+      "type": "object"
+    },
+    "ScreenSection": {
+      "properties": {
+        "target_summary": {
+          "additionalProperties": true,
+          "title": "Target Summary",
+          "type": "object"
+        },
+        "missingness": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Missingness",
+          "type": "object"
+        },
+        "top_correlations": {
+          "items": {
+            "$ref": "#/$defs/CorrelationSection"
+          },
+          "title": "Top Correlations",
+          "type": "array"
+        },
+        "time_trend": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Trend"
+        }
+      },
+      "title": "ScreenSection",
+      "type": "object"
+    },
+    "TargetSection": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "source",
+        "confidence"
+      ],
+      "title": "TargetSection",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0",
+      "default": "1.0.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run": {
+      "$ref": "#/$defs/RunInfo"
+    },
+    "dataset": {
+      "$ref": "#/$defs/DatasetSection"
+    },
+    "classification": {
+      "$ref": "#/$defs/ClassificationSection"
+    },
+    "research": {
+      "$ref": "#/$defs/ResearchSection"
+    },
+    "factors": {
+      "items": {
+        "$ref": "#/$defs/FactorSection"
+      },
+      "title": "Factors",
+      "type": "array"
+    },
+    "screen": {
+      "$ref": "#/$defs/ScreenSection"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/HypothesisSection"
+      },
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "critic_summary": {
+      "$ref": "#/$defs/CriticSummary"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    }
+  },
+  "required": [
+    "run",
+    "dataset",
+    "classification",
+    "research",
+    "screen",
+    "critic_summary",
+    "provenance"
+  ],
+  "title": "Artifact",
+  "type": "object"
+}

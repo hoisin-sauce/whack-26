@@ -1,0 +1,22 @@
+# Core stack — verified on Python 3.12.4 (see docs/research/python-stack.md)
+pandas==3.1.1
+numpy==2.5.4
+httpx==0.28.1
+pydantic==2.14.3
+
+# Hypothesis code. Let pip resolve the SciPy version compatible with numpy 2.5.4.
+scipy>=1.14,<2
+
+# Optional input formats
+openpyxl>=3.1,<4
+xlrd>=2.0,<3
+pyarrow>=17
+
+# Tests
+pytest>=8,<9
+
+# Optional local embedding fallback (no API key)
+# model2vec==0.10.0
+
+# Optional desktop UI (PyQt6) is kept out of the core install:
+#   pip install -r requirements-ui.txt

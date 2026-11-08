@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from whack26.config import Settings, load_dotenv
+
+
+def test_settings_resolve_env_values(tmp_path: Path) -> None:
+    env = {
+        "WHACK26_BASE_DIR": str(tmp_path),
+        "WHACK26_LLM_PROVIDER": "gemini",
+        "WHACK26_EMBED_PROVIDER": "gemini",
+        "GEMINI_API_KEY": "test-key",
+        "GEMINI_MODEL": "test-model",
+        "GEMINI_EMBED_MODEL": "test-embed",
+        "EMBED_DIMS": "32",
+        "OPENALEX_API_KEY": "oa-key",
+        "HF_TOKEN": "hf-token",
+        "WHACK26_OFFLINE": "1",
+        "WHACK26_TOP_K": "7",
+        "WHACK26_DUPLICATE_COSINE": "0.8",
+        "WHACK26_MAX_DEPTH": "3",
+        "WHACK26_CACHE_DIR": "local-cache",
+    }
+    settings = Settings.from_env(env)
+    assert settings.llm_provider == "gemini"
+    assert settings.gemini_model == "test-model"
+    assert settings.embed_dims == 32
+    assert settings.offline is True
+    assert settings.top_k == 7
+    assert settings.duplicate_cosine == 0.8
+    assert settings.max_depth == 3
+    assert settings.cache_dir == tmp_path / "local-cache"
+    assert settings.fields_db == tmp_path / "local-cache" / "fields.db"
+
+
+def test_mock_flag_sets_both_providers() -> None:
+    settings = Settings.from_env({}, mock=True)
+    assert settings.llm_provider == "mock"
+    assert settings.embed_provider == "mock"
+    assert settings.mock is True
+
+
+def test_invalid_max_depth_is_rejected() -> None:
+    with pytest.raises(ValueError, match="max_depth"):
+        Settings.from_env({"WHACK26_MAX_DEPTH": "5"})
+
+
+def test_invalid_provider_is_rejected() -> None:
+    with pytest.raises(ValueError, match="WHACK26_LLM_PROVIDER"):
+        Settings.from_env({"WHACK26_LLM_PROVIDER": "unknown"})
+
+
+@pytest.mark.parametrize(
+    ("desc", "centroid", "message"),
+    [
+        ("-0.1", "0.5", "desc_weight"),
+        ("0.5", "-0.1", "centroid_weight"),
+        ("1.2", "0.5", "desc_weight"),
+        ("0.5", "1.2", "centroid_weight"),
+        ("0.6", "0.6", "sum to 1"),
+    ],
+)
+def test_invalid_similarity_weights_are_rejected(
+    desc: str, centroid: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        Settings.from_env(
+            {
+                "WHACK26_DESC_WEIGHT": desc,
+                "WHACK26_CENTROID_WEIGHT": centroid,
+            }
+        )
+
+
+def test_valid_similarity_weights_are_accepted() -> None:
+    settings = Settings.from_env(
+        {
+            "WHACK26_DESC_WEIGHT": "0.7",
+            "WHACK26_CENTROID_WEIGHT": "0.3",
+        }
+    )
+    assert settings.desc_weight == pytest.approx(0.7)
+    assert settings.centroid_weight == pytest.approx(0.3)
+
+
+def test_load_dotenv_does_not_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("WHACK26_TEST_EXISTING", "keep-me")
+    monkeypatch.delenv("WHACK26_TEST_NEW", raising=False)
+    monkeypatch.delenv("WHACK26_TEST_QUOTED", raising=False)
+    path = tmp_path / ".env"
+    path.write_text(
+        "WHACK26_TEST_EXISTING=replace-me\n"
+        "WHACK26_TEST_NEW=new-value\n"
+        'WHACK26_TEST_QUOTED="quoted value"\n',
+        encoding="utf-8",
+    )
+    load_dotenv(path)
+    import os
+
+    assert os.environ["WHACK26_TEST_EXISTING"] == "keep-me"
+    assert os.environ["WHACK26_TEST_NEW"] == "new-value"
+    assert os.environ["WHACK26_TEST_QUOTED"] == "quoted value"

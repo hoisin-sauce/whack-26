@@ -1,0 +1,186 @@
+{
+  "_instructions": "Score each dataset using the 1-5 rubric. Fill root and path with integers from 1 to 5 and sibling_distinctness with true/false. Naming is optional: leave it null to use the automated naming result when that gate passes (assumed score 4); provide 1-5 to override it. A submission passes when at least 80% of datasets score >= 3 on the root and, separately, at least 80% score >= 3 on the full path, the mean root and path scores are at least 3.5, the mean naming score is at least 4.0, and at least 80% of descriptions distinguish the field. Leave root, path, and sibling_distinctness null to mark a dataset as not yet scored.",
+  "_rubric": {
+    "5": "Named as a practitioner would; parent-child relation obvious; description accurate",
+    "4": "Minor naming quibble; relation clear",
+    "3": "Acceptable, but a different path is also reasonable",
+    "2": "A node is misleading, too broad, or too narrow",
+    "1": "Nonsensical or dataset-specific label"
+  },
+  "penguins": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "biology",
+        "ecology",
+        "zoology",
+        "life sciences",
+        "biological sciences",
+        "animal science",
+        "ornithology"
+      ],
+      "good_path": "Life sciences > Ecology or zoology > Morphology / species"
+    }
+  },
+  "wine": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "food science",
+        "chemistry",
+        "agriculture",
+        "food and beverage",
+        "oenology",
+        "food"
+      ],
+      "good_path": "Food science > Oenology > Wine quality"
+    }
+  },
+  "california": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "housing",
+        "economics",
+        "real estate",
+        "urban planning",
+        "geography",
+        "social science"
+      ],
+      "good_path": "Housing or economics > Real estate > Housing prices"
+    }
+  },
+  "titanic": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "history",
+        "demography",
+        "sociology",
+        "maritime history",
+        "disaster studies",
+        "social science"
+      ],
+      "good_path": "History > Maritime disasters or demography > Survival"
+    }
+  },
+  "air_quality": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "environment",
+        "environmental science",
+        "air quality",
+        "atmospheric science",
+        "public health",
+        "chemistry"
+      ],
+      "good_path": "Environment > Air quality > Pollution monitoring"
+    }
+  },
+  "covid": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "public health",
+        "epidemiology",
+        "health",
+        "demography",
+        "infectious disease"
+      ],
+      "good_path": "Public health > Epidemiology > Infectious disease surveillance"
+    }
+  },
+  "spotify": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "music",
+        "media",
+        "culture",
+        "entertainment",
+        "arts",
+        "audio"
+      ],
+      "good_path": "Music > Musicology or audio analysis > Track popularity"
+    }
+  },
+  "student": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "education",
+        "social science",
+        "sociology",
+        "demography",
+        "learning"
+      ],
+      "good_path": "Education > Student outcomes > Academic performance"
+    }
+  },
+  "retail": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "retail",
+        "commerce",
+        "business",
+        "economics",
+        "marketing"
+      ],
+      "good_path": "Retail / commerce > E-commerce > Transactions"
+    }
+  },
+  "soccer": {
+    "root": null,
+    "path": null,
+    "naming": null,
+    "sibling_distinctness": null,
+    "notes": "",
+    "reference": {
+      "acceptable_roots": [
+        "sports",
+        "sports science",
+        "recreation",
+        "statistics"
+      ],
+      "good_path": "Sports > Association football > Match results"
+    }
+  }
+}
