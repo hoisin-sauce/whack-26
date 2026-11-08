@@ -24,9 +24,16 @@ from .base import (
     SourceError,
 )
 from .cache import ResearchCache, cache_key
+from .datacite import DataCiteAdapter
+from .datagov import DataGovAdapter
+from .dataverse import DataverseAdapter
 from .huggingface import HuggingFaceAdapter
+from .kaggle import KaggleAdapter
 from .normalize import deduplicate, rank_records
 from .openalex import OpenAlexAdapter
+from .openml import OpenMLAdapter
+from .semantic_scholar import SemanticScholarAdapter
+from .websearch import WebSearchAdapter
 from .wikipedia import WikipediaAdapter
 from .zenodo import ZenodoAdapter
 
@@ -38,9 +45,29 @@ SOURCE_LIMITS: dict[str, int] = {
     "huggingface": 5,
     "zenodo": 5,
     "wikipedia": 3,
+    "kaggle": 5,
+    "dataverse": 5,
+    "openml": 5,
+    "datagov": 5,
+    "datacite": 5,
+    "semantic_scholar": 5,
+    "websearch": 10,
 }
 
-QuerySource = Literal["openalex", "arxiv", "huggingface", "zenodo", "wikipedia"]
+QuerySource = Literal[
+    "openalex",
+    "arxiv",
+    "huggingface",
+    "zenodo",
+    "wikipedia",
+    "kaggle",
+    "dataverse",
+    "openml",
+    "datagov",
+    "datacite",
+    "semantic_scholar",
+    "websearch",
+]
 
 QUERY_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -58,6 +85,13 @@ QUERY_SCHEMA: dict[str, Any] = {
                             "huggingface",
                             "zenodo",
                             "wikipedia",
+                            "kaggle",
+                            "dataverse",
+                            "openml",
+                            "datagov",
+                            "datacite",
+                            "semantic_scholar",
+                            "websearch",
                         ],
                     },
                     "query": {"type": "string", "maxLength": 120},
@@ -328,14 +362,36 @@ def _build_adapters(
     dataset_id: str,
     offline: bool,
 ) -> dict[str, SourceAdapter]:
+    import os
+
     common = {"cache": cache, "dataset_id": dataset_id, "offline": offline}
-    return {
+    adapters: dict[str, SourceAdapter] = {
         "openalex": OpenAlexAdapter(api_key=settings.openalex_api_key, **common),
         "arxiv": arXivAdapter(**common),
         "huggingface": HuggingFaceAdapter(token=settings.hf_token, **common),
         "zenodo": ZenodoAdapter(token=settings.zenodo_token, **common),
         "wikipedia": WikipediaAdapter(**common),
+        "dataverse": DataverseAdapter(**common),
+        "openml": OpenMLAdapter(**common),
+        "datagov": DataGovAdapter(**common),
+        "datacite": DataCiteAdapter(**common),
     }
+    # Optional sources are only registered when configured; an unconfigured
+    # optional source must not put the whole run into limited mode.
+    kaggle = KaggleAdapter(**common)
+    if not getattr(kaggle, "limited_mode", False):
+        adapters["kaggle"] = kaggle
+    semantic_scholar = SemanticScholarAdapter(
+        api_key=os.environ.get("S2_API_KEY"), **common
+    )
+    if not getattr(semantic_scholar, "limited_mode", False):
+        adapters["semantic_scholar"] = semantic_scholar
+    websearch = WebSearchAdapter(**common)
+    if not getattr(websearch, "limited_mode", False) and not getattr(
+        websearch, "warnings", None
+    ):
+        adapters["websearch"] = websearch
+    return adapters
 
 
 def _research_keywords(records: Sequence[ResearchRecord], limit: int = 12) -> list[str]:

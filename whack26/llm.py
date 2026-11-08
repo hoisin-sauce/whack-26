@@ -242,76 +242,116 @@ def applies(df: pd.DataFrame) -> bool:
 
 _MOCK_HYPOTHESIS_CODES = {
     "linear_model": _MOCK_HYPOTHESIS_PREAMBLE
-    + '''def run(df: pd.DataFrame, seed: int = 0) -> dict:
-    """Return a simple numeric stand-in so downstream plumbing can run."""
-    df = df.copy()
-    np.random.seed(seed)
+    + '''PARAMETERS = {"ridge": 1e-3}
+
+
+def _fit(df: pd.DataFrame, seed: int = 0, params: dict | None = None):
+    """Fit the first numeric column as an identity stand-in."""
     numeric = [
         name for name in df.columns
         if pd.api.types.is_numeric_dtype(df[name])
     ]
     if not numeric:
-        return {
-            "predictions": [0.0] * len(df),
-            "target": None,
-            "notes": "Mock linear model: no numeric column was available.",
-        }
+        return {"column": None, "fallback": 0.0}
     column = numeric[0]
-    values = df[column].fillna(df[column].mean()).to_numpy(dtype=float)
+    values = df[column]
+    fallback = float(values.mean()) if values.notna().any() else 0.0
+    return {"column": column, "fallback": fallback}
+
+
+def _predict(model, df: pd.DataFrame):
+    """Return the fitted column, or its fallback when the column is absent."""
+    column = model.get("column")
+    fallback = float(model.get("fallback", 0.0))
+    if column is None or column not in df.columns:
+        return [fallback] * len(df)
+    values = pd.to_numeric(df[column], errors="coerce").fillna(fallback)
+    return values.to_numpy(dtype=float)
+
+
+def run(df: pd.DataFrame, seed: int = 0) -> dict:
+    """Return a simple numeric stand-in so downstream plumbing can run."""
+    df = df.copy()
+    np.random.seed(seed)
+    model = _fit(df, seed, PARAMETERS)
     return {
-        "predictions": values,
+        "predictions": _predict(model, df),
         "target": None,
-        "model_summary": {"feature": column, "slope": 1.0},
+        "model_summary": {"feature": model.get("column"), "slope": 1.0},
         "notes": "Mock linear model with an identity link.",
     }
 ''',
     "group_comparison": _MOCK_HYPOTHESIS_PREAMBLE
-    + '''def run(df: pd.DataFrame, seed: int = 0) -> dict:
-    """Predict the global mean of the first numeric column for every row."""
-    df = df.copy()
-    np.random.seed(seed)
+    + '''PARAMETERS = {"min_group_size": 2}
+
+
+def _fit(df: pd.DataFrame, seed: int = 0, params: dict | None = None):
+    """Fit the global mean of the first numeric column."""
     numeric = [
         name for name in df.columns
         if pd.api.types.is_numeric_dtype(df[name])
     ]
     if not numeric:
-        return {
-            "predictions": [0.0] * len(df),
-            "target": None,
-            "notes": "Mock group comparison: no numeric column was available.",
-        }
-    column = numeric[0]
-    values = df[column]
+        return {"constant": 0.0}
+    values = df[numeric[0]]
     constant = float(values.mean()) if values.notna().any() else 0.0
+    return {"constant": constant}
+
+
+def _predict(model, df: pd.DataFrame):
+    """Return the fitted global fallback for every row."""
+    return [float(model.get("constant", 0.0))] * len(df)
+
+
+def run(df: pd.DataFrame, seed: int = 0) -> dict:
+    """Predict the global mean of the first numeric column for every row."""
+    df = df.copy()
+    np.random.seed(seed)
+    model = _fit(df, seed, PARAMETERS)
     return {
-        "predictions": [constant] * len(df),
+        "predictions": _predict(model, df),
         "target": None,
-        "model_summary": {"feature": column, "group_means": [constant]},
+        "model_summary": {"group_means": [model.get("constant", 0.0)]},
         "notes": "Mock group comparison with the global fallback value.",
     }
 ''',
     "interaction_or_derived": _MOCK_HYPOTHESIS_PREAMBLE
-    + '''def run(df: pd.DataFrame, seed: int = 0) -> dict:
-    """Return a stand-in derived feature so downstream plumbing can run."""
-    df = df.copy()
-    np.random.seed(seed)
+    + '''PARAMETERS = {"ridge": 1e-3}
+
+
+def _fit(df: pd.DataFrame, seed: int = 0, params: dict | None = None):
+    """Fit the first numeric column for a squared derived feature."""
     numeric = [
         name for name in df.columns
         if pd.api.types.is_numeric_dtype(df[name])
     ]
     if not numeric:
-        return {
-            "predictions": [0.0] * len(df),
-            "target": None,
-            "notes": "Mock interaction model: no numeric column was available.",
-        }
+        return {"column": None, "fallback": 0.0}
     column = numeric[0]
-    values = df[column].fillna(df[column].mean()).to_numpy(dtype=float)
-    derived = values * values
+    values = df[column]
+    fallback = float(values.mean()) if values.notna().any() else 0.0
+    return {"column": column, "fallback": fallback}
+
+
+def _predict(model, df: pd.DataFrame):
+    """Square the fitted column, or return the fallback when it is absent."""
+    column = model.get("column")
+    fallback = float(model.get("fallback", 0.0))
+    if column is None or column not in df.columns:
+        return [fallback * fallback] * len(df)
+    values = pd.to_numeric(df[column], errors="coerce").fillna(fallback)
+    return values.to_numpy(dtype=float) ** 2
+
+
+def run(df: pd.DataFrame, seed: int = 0) -> dict:
+    """Return a stand-in derived feature so downstream plumbing can run."""
+    df = df.copy()
+    np.random.seed(seed)
+    model = _fit(df, seed, PARAMETERS)
     return {
-        "predictions": derived,
+        "predictions": _predict(model, df),
         "target": None,
-        "model_summary": {"derived_feature": f"{column}^2"},
+        "model_summary": {"derived_feature": f"{model.get('column')}^2"},
         "notes": "Mock derived-feature model.",
     }
 ''',

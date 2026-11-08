@@ -17,26 +17,55 @@ from ..common import redact_secrets
 from ..common import utc_now_iso
 from .cache import CachedResponse, ResearchCache, cache_key
 
-SourceName = Literal["openalex", "arxiv", "huggingface", "zenodo", "wikipedia"]
+SourceName = Literal[
+    "openalex",
+    "arxiv",
+    "huggingface",
+    "zenodo",
+    "wikipedia",
+    "kaggle",
+    "dataverse",
+    "openml",
+    "datagov",
+    "datacite",
+    "semantic_scholar",
+    "websearch",
+]
 
-PAPER_SOURCES: frozenset[str] = frozenset({"openalex", "arxiv"})
-DATASET_SOURCES: frozenset[str] = frozenset({"huggingface", "zenodo"})
+PAPER_SOURCES: frozenset[str] = frozenset({"openalex", "arxiv", "semantic_scholar"})
+DATASET_SOURCES: frozenset[str] = frozenset(
+    {"huggingface", "zenodo", "kaggle", "dataverse", "openml", "datagov", "datacite"}
+)
 
 SOURCE_PRIOR: dict[str, float] = {
     "openalex": 0.8,
     "arxiv": 0.7,
+    "semantic_scholar": 0.7,
     "zenodo": 0.7,
     "huggingface": 0.6,
+    "dataverse": 0.65,
+    "openml": 0.65,
+    "kaggle": 0.6,
+    "datagov": 0.6,
+    "datacite": 0.6,
     "wikipedia": 0.5,
+    "websearch": 0.4,
 }
 
 # Keep the best record per type, not per source.
 SOURCE_RANK: dict[str, int] = {
-    "openalex": 5,
-    "arxiv": 4,
-    "zenodo": 3,
+    "openalex": 8,
+    "arxiv": 7,
+    "semantic_scholar": 6,
+    "zenodo": 5,
+    "dataverse": 4,
+    "openml": 4,
+    "datacite": 4,
+    "kaggle": 3,
+    "datagov": 3,
     "huggingface": 2,
     "wikipedia": 1,
+    "websearch": 0,
 }
 
 RETRYABLE_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})

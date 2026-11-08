@@ -159,6 +159,34 @@ class Settings:
     )
     scrape_method_version: str = "1.0.0"
 
+    model_search_enabled: bool = False
+    variants_enabled: bool = False
+    generation_validation_enabled: bool = False
+    model_search_folds: int = 3
+    model_search_test_fraction: float = 0.30
+    model_search_final_holdout_fraction: float = 0.20
+    model_search_max_candidates: int = 100
+    model_search_top_n: int = 5
+    model_search_seed: int = 0
+    model_search_backend: str = "core"
+
+    agent_loop_enabled: bool = False
+    agent_max_attempts_per_family: int = 6
+    agent_max_total_attempts: int = 18
+    agent_max_seconds: int = 900
+
+    statistical_backend: str = "auto"
+    external_validator: str | None = None
+
+    hierarchy_tau_1: float = 0.55
+    hierarchy_tau_2: float = 0.60
+    hierarchy_tau_3: float = 0.65
+    hierarchy_tau_4: float = 0.70
+    specificity_margin: float = 0.05
+    promotion_margin: float = 0.05
+    max_roots: int = 20
+    max_children: int = 20
+
     scrape_fetch_enabled: bool = False
     scrape_allowed_domains: tuple[str, ...] = ()
     scrape_blocked_domains: tuple[str, ...] = ()
@@ -212,6 +240,55 @@ class Settings:
                 raise ValueError(f"{name} must be between 0 and 1")
         if self.scrape_ttl_days <= 0:
             raise ValueError("scrape_ttl_days must be positive")
+        if self.model_search_folds < 1:
+            raise ValueError("model_search_folds must be positive")
+        if not 0.0 < self.model_search_test_fraction < 1.0:
+            raise ValueError("model_search_test_fraction must be between 0 and 1")
+        if not 0.0 <= self.model_search_final_holdout_fraction < 1.0:
+            raise ValueError(
+                "model_search_final_holdout_fraction must be in [0, 1)"
+            )
+        if self.model_search_max_candidates <= 0:
+            raise ValueError("model_search_max_candidates must be positive")
+        if self.model_search_top_n <= 0:
+            raise ValueError("model_search_top_n must be positive")
+        if self.model_search_backend not in {"core", "sklearn", "statsmodels", "full"}:
+            raise ValueError(
+                "model_search_backend must be core, sklearn, statsmodels, or full"
+            )
+        if self.agent_max_attempts_per_family <= 0:
+            raise ValueError("agent_max_attempts_per_family must be positive")
+        if self.agent_max_total_attempts <= 0:
+            raise ValueError("agent_max_total_attempts must be positive")
+        if self.agent_max_seconds <= 0:
+            raise ValueError("agent_max_seconds must be positive")
+        if self.statistical_backend not in {
+            "auto",
+            "in_slice",
+            "stats_engine",
+            "external",
+            "none",
+        }:
+            raise ValueError(
+                "statistical_backend must be auto, in_slice, stats_engine, "
+                "external, or none"
+            )
+        for name in (
+            "hierarchy_tau_1",
+            "hierarchy_tau_2",
+            "hierarchy_tau_3",
+            "hierarchy_tau_4",
+        ):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be between 0 and 1")
+        for name in ("specificity_margin", "promotion_margin"):
+            if getattr(self, name) < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        if self.max_roots <= 0:
+            raise ValueError("max_roots must be positive")
+        if self.max_children <= 0:
+            raise ValueError("max_children must be positive")
         if self.scrape_rate_limit_seconds < 0:
             raise ValueError("scrape_rate_limit_seconds must be non-negative")
         if self.scrape_max_bytes <= 0:
@@ -331,6 +408,46 @@ class Settings:
             scrape_allow_private_networks=_bool(
                 env, "WHACK26_SCRAPE_ALLOW_PRIVATE_NETWORKS", False
             ),
+            model_search_enabled=_bool(env, "WHACK26_MODEL_SEARCH_ENABLED", False),
+            variants_enabled=_bool(env, "WHACK26_VARIANTS_ENABLED", False),
+            generation_validation_enabled=_bool(
+                env, "WHACK26_GENERATION_VALIDATION_ENABLED", False
+            ),
+            model_search_folds=_int(env, "WHACK26_MODEL_SEARCH_FOLDS", 3),
+            model_search_test_fraction=_float(
+                env, "WHACK26_MODEL_SEARCH_TEST_FRACTION", 0.30
+            ),
+            model_search_final_holdout_fraction=_float(
+                env, "WHACK26_MODEL_SEARCH_FINAL_HOLDOUT_FRACTION", 0.20
+            ),
+            model_search_max_candidates=_int(
+                env, "WHACK26_MODEL_SEARCH_MAX_CANDIDATES", 100
+            ),
+            model_search_top_n=_int(env, "WHACK26_MODEL_SEARCH_TOP_N", 5),
+            model_search_seed=_int(env, "WHACK26_MODEL_SEARCH_SEED", 0),
+            model_search_backend=_get(
+                env, "WHACK26_MODEL_SEARCH_BACKEND", "core"
+            )
+            or "core",
+            agent_loop_enabled=_bool(env, "WHACK26_AGENT_LOOP_ENABLED", False),
+            agent_max_attempts_per_family=_int(
+                env, "WHACK26_AGENT_MAX_ATTEMPTS_PER_FAMILY", 6
+            ),
+            agent_max_total_attempts=_int(
+                env, "WHACK26_AGENT_MAX_TOTAL_ATTEMPTS", 18
+            ),
+            agent_max_seconds=_int(env, "WHACK26_AGENT_MAX_SECONDS", 900),
+            statistical_backend=_get(env, "WHACK26_STATISTICAL_BACKEND", "auto")
+            or "auto",
+            external_validator=_get(env, "WHACK26_EXTERNAL_VALIDATOR"),
+            hierarchy_tau_1=_float(env, "WHACK26_HIERARCHY_TAU_1", 0.55),
+            hierarchy_tau_2=_float(env, "WHACK26_HIERARCHY_TAU_2", 0.60),
+            hierarchy_tau_3=_float(env, "WHACK26_HIERARCHY_TAU_3", 0.65),
+            hierarchy_tau_4=_float(env, "WHACK26_HIERARCHY_TAU_4", 0.70),
+            specificity_margin=_float(env, "WHACK26_SPECIFICITY_MARGIN", 0.05),
+            promotion_margin=_float(env, "WHACK26_PROMOTION_MARGIN", 0.05),
+            max_roots=_int(env, "WHACK26_MAX_ROOTS", 20),
+            max_children=_int(env, "WHACK26_MAX_CHILDREN", 20),
         )
         if settings.top_k <= 0:
             raise ValueError("WHACK26_TOP_K must be positive")

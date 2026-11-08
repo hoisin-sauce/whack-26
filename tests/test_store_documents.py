@@ -65,7 +65,7 @@ def test_new_store_creates_v2_schema(tmp_path: Path) -> None:
             .execute("SELECT name FROM sqlite_master WHERE type IN ('table','view')")
             .fetchall()
         }
-        assert version == 2
+        assert version == 4
         assert {
             "documents",
             "datasets",
@@ -74,6 +74,9 @@ def test_new_store_creates_v2_schema(tmp_path: Path) -> None:
             "document_comparisons",
             "document_critiques",
             "document_fetches",
+            "field_operations",
+            "store_meta",
+            "research_models",
             "schema_migrations",
             "searches",
             "papers",
@@ -169,7 +172,7 @@ def test_v1_migration_preserves_datasets_and_memberships(tmp_path: Path) -> None
 
     with FieldStore(path, dims=DIMS) as store:
         version = store._connection().execute("PRAGMA user_version").fetchone()[0]
-        assert version == 2
+        assert version == 4
         dataset = store.get_dataset("ds_old")
         assert dataset is not None
         assert dataset["summary"] == "Old housing summary."
@@ -303,3 +306,72 @@ def test_document_critiques_and_fetches(tmp_path: Path) -> None:
         assert fetch is not None
         assert fetch["status"] == 200
         assert fetch["etag"] == "etag-1"
+
+
+def test_leaf_operations_and_hierarchy_version(tmp_path: Path) -> None:
+    with FieldStore(tmp_path / "fields.db", dims=DIMS) as store:
+        root = make_field(store, "Research")
+        child = make_field(store, "Methods", parent_id=root.id)
+        store.upsert_document(make_document("doc_a"))
+
+        store.set_leaf("doc_a", child.id)
+        assert store.get_leaf("doc_a") == child.id
+
+        before = store.hierarchy_version()
+        operation_id = store.log_field_operation(
+            operation="create",
+            field_id=child.id,
+            old_parent_id=root.id,
+            new_parent_id=root.id,
+            old_level=1,
+            new_level=2,
+            reason="test",
+        )
+        after = store.bump_hierarchy_version()
+
+        assert after == before + 1
+        assert operation_id.startswith("fop_")
+        operations = store.field_operations(field_id=child.id)
+        assert operations[0]["operation"] == "create"
+        assert operations[0]["reason"] == "test"
+
+
+def test_research_models_and_collection_metadata(tmp_path: Path) -> None:
+    with FieldStore(tmp_path / "fields.db", dims=DIMS) as store:
+        store.upsert_document(make_document("doc_a"))
+        model_id = store.put_research_model(
+            document_id="doc_a",
+            family="linear",
+            spec_json='{"family": "linear"}',
+            mapping_json='{"predictors": ["x"]}',
+            evidence="The paper reports an OLS model.",
+            applied=True,
+        )
+
+        models = store.list_research_models(document_id="doc_a")
+        assert models[0]["id"] == model_id
+        assert models[0]["family"] == "linear"
+        assert models[0]["spec"] == {"family": "linear"}
+        assert models[0]["mapping"] == {"predictors": ["x"]}
+        assert models[0]["applied"] is True
+
+        root = make_field(store, "Research")
+        store.commit_path(
+            dataset_id="ds_test",
+            sha256="abc123",
+            profile_json="{}",
+            summary="A test dataset.",
+            embedding=[1.0, 0.0],
+            path_json=json.dumps([root.id]),
+            confidence=1.0,
+            refined_after_research=False,
+            field_ids=[root.id],
+        )
+        store.set_collection(
+            "ds_test",
+            '{"design": "observational", "unit_of_analysis": "block group"}',
+        )
+        assert store.get_collection("ds_test") == {
+            "design": "observational",
+            "unit_of_analysis": "block group",
+        }

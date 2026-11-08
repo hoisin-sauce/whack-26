@@ -14,6 +14,7 @@ from whack26.config import Settings
 from whack26.research.base import ResearchRecord
 from whack26.research.pipeline import ResearchResult
 from whack26.run import run_pipeline
+from whack26.validation.models import ValidationConfig
 
 
 def make_dataset(path: Path) -> pd.DataFrame:
@@ -103,6 +104,107 @@ def test_run_pipeline_mock_offline_writes_valid_artifact_and_preview(
         assert hypothesis.title in preview
 
 
+def test_run_pipeline_with_model_search_variants_and_generation_validation(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "agentic.csv"
+    rng = np.random.default_rng(7)
+    x = rng.normal(0.0, 1.0, 120)
+    frame = pd.DataFrame(
+        {
+            "x": x,
+            "z": rng.normal(0.0, 1.0, 120),
+            "group": ["a", "b", "c"] * 40,
+            "y": 2.0 * x + rng.normal(0.0, 0.1, 120),
+        }
+    )
+    frame.to_csv(dataset, index=False)
+    run_dir = tmp_path / "run"
+
+    outcome = run_pipeline(
+        input_path=dataset,
+        target="y",
+        seed=0,
+        mock=True,
+        offline=True,
+        model_search=True,
+        variants=True,
+        validate_generation=True,
+        collection={
+            "design": "observational",
+            "unit_of_analysis": "row",
+            "sampling": "synthetic",
+        },
+        settings=make_settings(tmp_path),
+        out_dir=run_dir,
+    )
+
+    for relative in (
+        "model_search.json",
+        "variants.json",
+        "research_models.json",
+        "generation_validation.json",
+    ):
+        assert (run_dir / relative).is_file(), relative
+
+    artifact = outcome.artifact
+    assert artifact.model_search is not None
+    assert artifact.model_search.candidate_count > 0
+    assert artifact.variants is not None
+    assert artifact.variants.verdict in {"pass", "reject", "insufficient"}
+    assert artifact.collection is not None
+    assert artifact.collection["design"] == "observational"
+    assert artifact.generation_validation_summary is not None
+    assert all(
+        hypothesis.generation_validation is not None
+        for hypothesis in artifact.hypotheses
+    )
+    preview = outcome.preview_path.read_text(encoding="utf-8")
+    assert "## Automated model search" in preview
+    assert "## Dataset variants" in preview
+    assert "## Collection metadata" in preview
+    assert "## Generation validation summary" in preview
+
+
+def test_run_pipeline_with_validation_embeds_reports(tmp_path: Path) -> None:
+    dataset = tmp_path / "input.csv"
+    make_dataset(dataset)
+    run_dir = tmp_path / "run"
+
+    outcome = run_pipeline(
+        input_path=dataset,
+        target="y",
+        seed=0,
+        mock=True,
+        offline=True,
+        settings=make_settings(tmp_path),
+        out_dir=run_dir,
+        validate=True,
+        validation_config=ValidationConfig(
+            num_permutations=20,
+            timeout_seconds=60.0,
+            min_dsr=0.0,
+            max_p=1.0,
+            max_performance_drop=1.0,
+        ),
+        log=lambda _: None,
+    )
+
+    assert "validation.json" in {path.name for path in run_dir.iterdir()}
+    assert len(outcome.validations) == 3
+    assert all(report.status != "error" for report in outcome.validations.values())
+    loaded, errors = validate_artifact(outcome.artifact_path)
+    assert errors == []
+    assert loaded is not None
+    assert loaded.validation_summary is not None
+    assert sum(loaded.validation_summary.counts.values()) == 3
+    for hypothesis in loaded.hypotheses:
+        assert hypothesis.validation is not None
+    assert "## Validation summary" in outcome.preview_path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_generated_modules_reproduce_saved_predictions(tmp_path: Path) -> None:
     dataset = tmp_path / "input.csv"
     make_dataset(dataset)
@@ -134,6 +236,42 @@ def test_generated_modules_reproduce_saved_predictions(tmp_path: Path) -> None:
             atol=1e-12,
         )
         assert saved["row_index"].tolist() == frame.index.tolist()
+
+
+def test_cli_run_with_statistical_validation(tmp_path: Path, monkeypatch, capsys) -> None:
+    dataset = tmp_path / "input.csv"
+    make_dataset(dataset)
+    monkeypatch.setenv("WHACK26_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("WHACK26_RUNS_DIR", str(tmp_path / "runs"))
+    run_dir = tmp_path / "validated-run"
+
+    code = main(
+        [
+            "run",
+            "--input",
+            str(dataset),
+            "--target",
+            "y",
+            "--mock",
+            "--offline",
+            "--out",
+            str(run_dir),
+            "--validate",
+            "--validation-num-permutations",
+            "10",
+            "--validation-timeout",
+            "60",
+        ]
+    )
+
+    output = capsys.readouterr()
+    assert code == 0, output.err
+    assert "validation:" in output.out
+    assert (run_dir / "validation.json").is_file()
+    artifact, errors = validate_artifact(run_dir / "artifact.json")
+    assert errors == []
+    assert artifact is not None
+    assert artifact.validation_summary is not None
 
 
 def test_cli_run_validate_and_preview(tmp_path: Path, monkeypatch, capsys) -> None:

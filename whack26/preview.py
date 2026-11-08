@@ -357,6 +357,72 @@ def _critic_heading(critic: CriticSection | None) -> str:
     return f"{critic.verdict} ({len(critic.issues)} issue(s))"
 
 
+def _validation_lines(hypothesis: HypothesisSection) -> list[str]:
+    validation = hypothesis.validation
+    if validation is None:
+        return []
+    lines = [
+        f"- Statistical validation: {_text(validation.status)} "
+        f"(verdict: {_text(validation.verdict)})"
+    ]
+    if validation.in_sample_fallback:
+        lines.append(
+            "  - Mode: in-sample fallback; fit/predict helpers were unavailable"
+        )
+    if validation.rows_used:
+        lines.append(
+            f"  - Rows: {validation.rows_used:,} used, "
+            f"{validation.dropped_rows:,} dropped"
+        )
+    if validation.periods_per_year_source != "default":
+        lines.append(
+            f"  - Periods/year: {_number(validation.periods_per_year, 2)} "
+            f"({_text(validation.periods_per_year_source)})"
+        )
+    for layer in validation.layers:
+        line = f"  - {_text(layer.layer)}: {_text(layer.status)}"
+        if layer.reason:
+            line += f" \u2014 {_text(layer.reason)}"
+        lines.append(line)
+    metrics: list[str] = []
+    if validation.dsr_score is not None:
+        metrics.append(f"DSR {_number(validation.dsr_score)}")
+    if validation.p_value is not None:
+        metrics.append(f"p {_number(validation.p_value)}")
+    if validation.oos_score is not None:
+        metrics.append(f"OOS R2 {_number(validation.oos_score)}")
+    if validation.decay_rate is not None:
+        metrics.append(f"decay {_number(validation.decay_rate)}")
+    if metrics:
+        lines.append("  - Metrics: " + ", ".join(metrics))
+    if validation.error:
+        lines.append(f"  - Error: {_text(validation.error)}")
+    return lines
+
+
+def _generation_validation_lines(hypothesis: HypothesisSection) -> list[str]:
+    result = hypothesis.generation_validation
+    if result is None:
+        return []
+    lines = [
+        f"- Generation validation: {_text(result.verdict)} "
+        f"({len(result.issues)} issue(s))"
+    ]
+    if result.summary:
+        lines.append(f"  - Summary: {_text(result.summary)}")
+    if result.missing_information:
+        lines.append(
+            "  - Missing information: "
+            + ", ".join(_text(item) for item in result.missing_information)
+        )
+    for issue in result.issues[:5]:
+        line = f"  - {_text(issue.severity)}: {_text(issue.finding)}"
+        if issue.fix:
+            line += f" (fix: {_text(issue.fix)})"
+        lines.append(line)
+    return lines
+
+
 def _hypothesis_section(
     artifact: Artifact, hypothesis: HypothesisSection, base_dir: Path
 ) -> list[str]:
@@ -410,6 +476,13 @@ def _hypothesis_section(
     lines.append(f"- Critic verdict: {_text(_critic_heading(hypothesis.critic))}")
     if hypothesis.critic and hypothesis.critic.summary:
         lines.extend(["", _text(hypothesis.critic.summary), ""])
+    validation = _validation_lines(hypothesis)
+    if validation:
+        lines.extend(validation)
+    generation = _generation_validation_lines(hypothesis)
+    if generation:
+        lines.extend(generation)
+    lines.append("")
     code = _sanitize(_code_text(base_dir, hypothesis.code_path), base_dir).rstrip()
     fence = _fence(code)
     lines.extend(["", fence + "python", code, fence, ""])
@@ -465,6 +538,125 @@ def _critic_section(artifact: Artifact) -> list[str]:
         for hypothesis_id, item in missing:
             lines.append(f"- `{hypothesis_id}`: {_text(item)}")
         lines.append("")
+    return lines
+
+
+def _model_search_section(artifact: Artifact) -> list[str]:
+    section = artifact.model_search
+    if section is None:
+        return []
+    lines = ["## Automated model search", ""]
+    lines.append(f"- Target kind: {_text(section.target_kind)}")
+    lines.append(f"- Primary metric: {_text(section.metric)}")
+    lines.append(
+        f"- Selected: {_text(section.selected_family or 'none')} "
+        f"({section.candidate_count} candidate(s))"
+    )
+    if section.selected_metrics:
+        metrics = ", ".join(
+            f"{name} {_number(value)}"
+            for name, value in sorted(section.selected_metrics.items())
+        )
+        lines.append(f"- Metrics: {metrics}")
+    if section.candidates:
+        lines.append("")
+        lines.append("| Rank | Family | Features | Metrics | Selected |")
+        lines.append("|---:|---|---|---|---|")
+        for candidate in section.candidates[:10]:
+            rank = candidate.get("rank")
+            family = candidate.get("family")
+            features = ", ".join(str(item) for item in candidate.get("features", []))
+            metrics = ", ".join(
+                f"{name} {_number(value)}"
+                for name, value in sorted((candidate.get("metrics") or {}).items())
+            )
+            lines.append(
+                f"| {rank if rank is not None else ''} | {_text(family)} | "
+                f"{_text(features)} | {_text(metrics)} | "
+                f"{'yes' if candidate.get('selected') else ''} |"
+            )
+    for warning in section.warnings:
+        lines.append(f"- Warning: {_text(warning)}")
+    lines.append("")
+    return lines
+
+
+def _variants_section(artifact: Artifact) -> list[str]:
+    section = artifact.variants
+    if section is None:
+        return []
+    lines = ["## Dataset variants", ""]
+    lines.append(f"- Verdict: {_text(section.verdict)}")
+    lines.append(
+        f"- Jumbled-label leak: {'yes' if section.jumbled_label_leak else 'no'}"
+    )
+    lines.append(f"- PII reliance: {'yes' if section.pii_reliance else 'no'}")
+    for variant in section.variants:
+        name = variant.get("name") or variant.get("kind") or "variant"
+        lines.append(f"- {_text(name)}: {_text(variant)}")
+    for warning in section.warnings:
+        lines.append(f"- Warning: {_text(warning)}")
+    lines.append("")
+    return lines
+
+
+def _research_models_section(artifact: Artifact) -> list[str]:
+    if not artifact.research_models:
+        return []
+    lines = ["## Research-derived models", ""]
+    lines.append("| Family | Outcome | Columns | Confidence | Applied |")
+    lines.append("|---|---|---|---:|---|")
+    for model in artifact.research_models[:10]:
+        columns = ", ".join(model.mapped_columns)
+        lines.append(
+            f"| {_text(model.family)} | {_text(model.outcome or '')} | "
+            f"{_text(columns)} | {_number(model.confidence, 2)} | "
+            f"{'yes' if model.applied else 'no'} |"
+        )
+    lines.append("")
+    return lines
+
+
+def _collection_section(artifact: Artifact) -> list[str]:
+    collection = artifact.collection
+    if not collection:
+        return []
+    lines = ["## Collection metadata", ""]
+    for key, value in sorted(collection.items()):
+        if isinstance(value, list):
+            rendered = ", ".join(str(item) for item in value) or "none"
+        elif value is None:
+            rendered = "unknown"
+        else:
+            rendered = str(value)
+        lines.append(f"- {_text(key)}: {_text(rendered)}")
+    lines.append("")
+    return lines
+
+
+def _generation_validation_summary_section(artifact: Artifact) -> list[str]:
+    summary = artifact.generation_validation_summary
+    if summary is None:
+        return []
+    lines = ["## Generation validation summary", ""]
+    lines.append("| Verdict | Count |")
+    lines.append("|---|---:|")
+    for verdict in ("pass", "refine", "reject", "insufficient"):
+        lines.append(f"| {verdict} | {summary.verdicts.get(verdict, 0)} |")
+    lines.append("")
+    return lines
+
+
+def _validation_summary_section(artifact: Artifact) -> list[str]:
+    summary = artifact.validation_summary
+    if summary is None:
+        return []
+    lines = ["## Validation summary", ""]
+    lines.append("| Status | Count |")
+    lines.append("|---|---:|")
+    for status in ("passed", "failed", "partial", "skipped", "error"):
+        lines.append(f"| {status} | {summary.counts.get(status, 0)} |")
+    lines.append("")
     return lines
 
 
@@ -600,8 +792,14 @@ def render_preview(artifact: Artifact, *, base_dir: Path) -> str:
     lines.extend(_research_section(artifact))
     lines.extend(_semantic_scraping_section(artifact))
     lines.extend(_factors_section(artifact))
+    lines.extend(_collection_section(artifact))
+    lines.extend(_model_search_section(artifact))
+    lines.extend(_variants_section(artifact))
+    lines.extend(_research_models_section(artifact))
     lines.extend(_hypotheses_section(artifact, base_dir))
     lines.extend(_critic_section(artifact))
+    lines.extend(_validation_summary_section(artifact))
+    lines.extend(_generation_validation_summary_section(artifact))
     lines.extend(_warnings_section(artifact))
     lines.extend(_provenance_section(artifact))
     while lines and not lines[-1]:

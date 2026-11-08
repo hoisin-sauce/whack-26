@@ -1,0 +1,303 @@
+{
+  "schema_version": "1.0.0",
+  "generated_by": "eval/model_search.py",
+  "datasets": [
+    {
+      "slug": "linear",
+      "name": "Linear relationship with known signs",
+      "target": "y",
+      "target_kind": "continuous",
+      "expected_families": [
+        "linear"
+      ],
+      "seed": 1001,
+      "notes": "y = 3 + 2*x1 - 1.5*x2 + 0.4*x3 + noise; y_leak is target-derived.",
+      "expected_features": [
+        "x1",
+        "x2"
+      ],
+      "expected_signs": [
+        [
+          "x1",
+          1
+        ],
+        [
+          "x2",
+          -1
+        ]
+      ],
+      "expected_interaction": null,
+      "leakage_columns": [
+        "y_leak"
+      ],
+      "time_column": null,
+      "group_column": null,
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": false,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": null,
+      "rows": 160,
+      "fixture_file": "linear.csv"
+    },
+    {
+      "slug": "interaction",
+      "name": "Interaction relationship",
+      "target": "y",
+      "target_kind": "continuous",
+      "expected_families": [
+        "interaction"
+      ],
+      "seed": 1002,
+      "notes": "y = 1 + 0.6*x1 + 0.6*x2 + 1.5*x1*x2 + noise.",
+      "expected_features": [
+        "x1",
+        "x2"
+      ],
+      "expected_signs": [],
+      "expected_interaction": [
+        "x1",
+        "x2"
+      ],
+      "leakage_columns": [],
+      "time_column": null,
+      "group_column": null,
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": false,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": null,
+      "rows": 160,
+      "fixture_file": "interaction.csv"
+    },
+    {
+      "slug": "binary_logistic",
+      "name": "Binary logistic relationship",
+      "target": "y_binary",
+      "target_kind": "binary",
+      "expected_families": [
+        "logistic"
+      ],
+      "seed": 1003,
+      "notes": "logit(p) = -0.3 + 1.4*x1 - 1.0*x2 + 0.3*x3.",
+      "expected_features": [
+        "x1",
+        "x2"
+      ],
+      "expected_signs": [
+        [
+          "x1",
+          1
+        ],
+        [
+          "x2",
+          -1
+        ]
+      ],
+      "expected_interaction": null,
+      "leakage_columns": [
+        "outcome_copy"
+      ],
+      "time_column": null,
+      "group_column": null,
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": false,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": null,
+      "rows": 200,
+      "fixture_file": "binary_logistic.csv"
+    },
+    {
+      "slug": "multiclass",
+      "name": "Multiclass relationship",
+      "target": "y_class",
+      "target_kind": "multiclass",
+      "expected_families": [
+        "multinomial"
+      ],
+      "seed": 1004,
+      "notes": "Three-class softmax driven by x1 and x2.",
+      "expected_features": [
+        "x1",
+        "x2"
+      ],
+      "expected_signs": [],
+      "expected_interaction": null,
+      "leakage_columns": [],
+      "time_column": null,
+      "group_column": null,
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": false,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": null,
+      "rows": 180,
+      "fixture_file": "multiclass.csv"
+    },
+    {
+      "slug": "count_overdispersed",
+      "name": "Over-dispersed count relationship",
+      "target": "y_count",
+      "target_kind": "count",
+      "expected_families": [
+        "negative_binomial",
+        "poisson"
+      ],
+      "seed": 1005,
+      "notes": "Negative-binomial counts with mean exp(0.5 + 0.8*x1 - 0.6*x2).",
+      "expected_features": [
+        "x1",
+        "x2"
+      ],
+      "expected_signs": [
+        [
+          "x1",
+          1
+        ],
+        [
+          "x2",
+          -1
+        ]
+      ],
+      "expected_interaction": null,
+      "leakage_columns": [],
+      "time_column": null,
+      "group_column": null,
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": true,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": null,
+      "rows": 180,
+      "fixture_file": "count_overdispersed.csv"
+    },
+    {
+      "slug": "time_series",
+      "name": "Time-series trend and seasonality",
+      "target": "y",
+      "target_kind": "time_series",
+      "expected_families": [
+        "linear",
+        "sindy"
+      ],
+      "seed": 1006,
+      "notes": "y = 10 + 0.05*t + 2*sin(2*pi*t/12) + 0.8*cos(2*pi*t/12) + noise.",
+      "expected_features": [
+        "time"
+      ],
+      "expected_signs": [],
+      "expected_interaction": null,
+      "leakage_columns": [],
+      "time_column": "time",
+      "group_column": null,
+      "required_feature_tokens": [
+        "time",
+        "sin",
+        "cos"
+      ],
+      "seasonality_period": 12,
+      "overdispersed": false,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": null,
+      "rows": 144,
+      "fixture_file": "time_series.csv"
+    },
+    {
+      "slug": "group_means",
+      "name": "Categorical group means",
+      "target": "y",
+      "target_kind": "continuous",
+      "expected_families": [
+        "group_comparison",
+        "linear"
+      ],
+      "seed": 1007,
+      "notes": "Four groups with different means plus a weak numeric covariate.",
+      "expected_features": [
+        "group"
+      ],
+      "expected_signs": [],
+      "expected_interaction": null,
+      "leakage_columns": [],
+      "time_column": null,
+      "group_column": "group",
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": false,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": null,
+      "rows": 120,
+      "fixture_file": "group_means.csv"
+    },
+    {
+      "slug": "missing_collinear",
+      "name": "Missing values and collinear features",
+      "target": "y",
+      "target_kind": "continuous",
+      "expected_families": [
+        "linear"
+      ],
+      "seed": 1008,
+      "notes": "x2 is nearly collinear with x1; x2 and x3 contain missing values.",
+      "expected_features": [
+        "x1",
+        "x3"
+      ],
+      "expected_signs": [],
+      "expected_interaction": null,
+      "leakage_columns": [],
+      "time_column": null,
+      "group_column": null,
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": false,
+      "missing_columns": [
+        "x2",
+        "x3"
+      ],
+      "collinear_pair": [
+        "x1",
+        "x2"
+      ],
+      "high_cardinality_column": null,
+      "rows": 120,
+      "fixture_file": "missing_collinear.csv"
+    },
+    {
+      "slug": "small_n_high_cardinality",
+      "name": "Small n with a high-cardinality category",
+      "target": "y",
+      "target_kind": "continuous",
+      "expected_families": [
+        "linear",
+        "group_comparison"
+      ],
+      "seed": 1009,
+      "notes": "24 sites with two observations each; only x1 generalises.",
+      "expected_features": [
+        "x1"
+      ],
+      "expected_signs": [],
+      "expected_interaction": null,
+      "leakage_columns": [],
+      "time_column": null,
+      "group_column": null,
+      "required_feature_tokens": [],
+      "seasonality_period": null,
+      "overdispersed": false,
+      "missing_columns": [],
+      "collinear_pair": null,
+      "high_cardinality_column": "site",
+      "rows": 48,
+      "fixture_file": "small_n_high_cardinality.csv"
+    }
+  ]
+}

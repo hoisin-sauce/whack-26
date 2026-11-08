@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS documents (
   credibility_json TEXT NOT NULL DEFAULT '{}',
   credible INTEGER NOT NULL DEFAULT 0,
   preloaded INTEGER NOT NULL DEFAULT 0,
+  leaf_field_id TEXT REFERENCES fields(id) ON DELETE SET NULL,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -99,7 +100,8 @@ CREATE TABLE IF NOT EXISTS datasets (
   path_json TEXT NOT NULL,
   confidence REAL NOT NULL,
   refined_after_research INTEGER NOT NULL DEFAULT 0,
-  cache_key TEXT
+  cache_key TEXT,
+  collection_json TEXT
 );
 
 CREATE VIEW IF NOT EXISTS searches AS
@@ -166,6 +168,46 @@ CREATE TABLE IF NOT EXISTS document_fetches (
   fetched_at TEXT NOT NULL,
   ttl_seconds INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS field_operations (
+  id TEXT PRIMARY KEY,
+  operation TEXT NOT NULL CHECK (
+    operation IN ('create','merge','promote','reassign_leaf','recompute_path','prune','delete')
+  ),
+  field_id TEXT NOT NULL,
+  old_parent_id TEXT,
+  new_parent_id TEXT,
+  old_level INTEGER,
+  new_level INTEGER,
+  document_id TEXT,
+  affected_documents INTEGER NOT NULL DEFAULT 0,
+  reason TEXT NOT NULL DEFAULT '',
+  model TEXT,
+  run_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS field_operations_field
+  ON field_operations(field_id);
+CREATE INDEX IF NOT EXISTS field_operations_created
+  ON field_operations(created_at);
+
+CREATE TABLE IF NOT EXISTS store_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS research_models (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  family TEXT NOT NULL,
+  spec_json TEXT NOT NULL,
+  mapping_json TEXT NOT NULL DEFAULT '{}',
+  evidence TEXT NOT NULL,
+  applied INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_models_document
+  ON research_models(document_id);
 
 CREATE VIEW IF NOT EXISTS field_members AS
   SELECT df.field_id, df.document_id AS dataset_id
@@ -283,6 +325,8 @@ class FieldStore:
                     (utc_now_iso(), "created v2 schema"),
                 )
                 conn.commit()
+            self._ensure_v3_schema(conn)
+            self._ensure_v4_schema(conn)
             return
 
         # v1 migration.  Rename the old tables first so the new ``datasets``
@@ -373,6 +417,8 @@ class FieldStore:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             raise
+        self._ensure_v3_schema(conn)
+        self._ensure_v4_schema(conn)
         foreign_key_errors = conn.execute("PRAGMA foreign_key_check").fetchall()
         if foreign_key_errors:
             raise FieldStoreError(
@@ -413,6 +459,125 @@ class FieldStore:
                 changed = True
         if changed:
             conn.commit()
+
+    def _ensure_v3_schema(self, conn: sqlite3.Connection) -> None:
+        """Add the hierarchy fields introduced in schema v3."""
+        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        if version >= 3:
+            return
+        document_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(documents)").fetchall()
+        }
+        if document_columns and "leaf_field_id" not in document_columns:
+            conn.execute(
+                "ALTER TABLE documents ADD COLUMN leaf_field_id TEXT "
+                "REFERENCES fields(id) ON DELETE SET NULL"
+            )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS field_operations (
+              id TEXT PRIMARY KEY,
+              operation TEXT NOT NULL,
+              field_id TEXT NOT NULL,
+              old_parent_id TEXT,
+              new_parent_id TEXT,
+              old_level INTEGER,
+              new_level INTEGER,
+              document_id TEXT,
+              affected_documents INTEGER NOT NULL DEFAULT 0,
+              reason TEXT NOT NULL DEFAULT '',
+              model TEXT,
+              run_id TEXT,
+              created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS store_meta "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        seen: set[str] = set()
+        for row in conn.execute(
+            "SELECT document_id, field_id FROM document_fields "
+            "ORDER BY document_id, ordinal DESC"
+        ).fetchall():
+            document_id = row["document_id"]
+            if document_id in seen:
+                continue
+            seen.add(document_id)
+            conn.execute(
+                "UPDATE documents SET leaf_field_id = ? "
+                "WHERE id = ? AND leaf_field_id IS NULL",
+                (row["field_id"], document_id),
+            )
+        for row in conn.execute(
+            "SELECT document_id, path_json FROM datasets"
+        ).fetchall():
+            if row["document_id"] in seen:
+                continue
+            try:
+                path = json.loads(row["path_json"])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if (
+                isinstance(path, list)
+                and path
+                and isinstance(path[-1], str)
+            ):
+                conn.execute(
+                    "UPDATE documents SET leaf_field_id = ? "
+                    "WHERE id = ? AND leaf_field_id IS NULL",
+                    (path[-1], row["document_id"]),
+                )
+        conn.execute(
+            "INSERT OR IGNORE INTO store_meta (key, value) "
+            "VALUES ('hierarchy_version', '1')"
+        )
+        conn.execute("PRAGMA user_version = 3")
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_migrations "
+            "(version, applied_at, note) VALUES (3, ?, ?)",
+            (utc_now_iso(), "added leaf field and hierarchy operations"),
+        )
+        conn.commit()
+
+    def _ensure_v4_schema(self, conn: sqlite3.Connection) -> None:
+        """Add collection metadata and research-model storage (schema v4)."""
+        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        if version >= 4:
+            return
+        dataset_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(datasets)").fetchall()
+        }
+        if dataset_columns and "collection_json" not in dataset_columns:
+            conn.execute("ALTER TABLE datasets ADD COLUMN collection_json TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_models (
+              id TEXT PRIMARY KEY,
+              document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+              family TEXT NOT NULL,
+              spec_json TEXT NOT NULL,
+              mapping_json TEXT NOT NULL DEFAULT '{}',
+              evidence TEXT NOT NULL,
+              applied INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS research_models_document "
+            "ON research_models(document_id)"
+        )
+        conn.execute("PRAGMA user_version = 4")
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_migrations "
+            "(version, applied_at, note) VALUES (4, ?, ?)",
+            (utc_now_iso(), "added collection metadata and research models"),
+        )
+        conn.commit()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -873,10 +1038,10 @@ class FieldStore:
                    embedding_model, canonical_url, url_hash, content_sha256,
                    content_sha512, authors_json, publisher, published_at, license,
                    metadata_json, credibility_score, credibility_json, credible,
-                   preloaded, status, created_at, updated_at)
+                   preloaded, leaf_field_id, status, created_at, updated_at)
                 VALUES (?, 'dataset', 'user', NULL, ?, ?, ?, '', NULL, NULL, ?,
                         NULL, '[]', NULL, NULL, NULL, '{}', 0.0, '{}', 0, 0,
-                        'classified', ?, ?)
+                        ?, 'classified', ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   kind = excluded.kind,
                   source = excluded.source,
@@ -884,6 +1049,7 @@ class FieldStore:
                   summary = excluded.summary,
                   summary_embedding = excluded.summary_embedding,
                   content_sha256 = excluded.content_sha256,
+                  leaf_field_id = excluded.leaf_field_id,
                   status = excluded.status,
                   updated_at = excluded.updated_at
                 """,
@@ -893,6 +1059,7 @@ class FieldStore:
                     summary,
                     embedding_blob,
                     sha256,
+                    ids[-1],
                     now,
                     now,
                 ),
@@ -944,7 +1111,7 @@ class FieldStore:
             """
             SELECT d.id, d.summary, d.summary_embedding, d.content_sha256,
                    d.updated_at, ds.profile_json, ds.path_json, ds.confidence,
-                   ds.refined_after_research, ds.cache_key
+                   ds.refined_after_research, ds.cache_key, ds.collection_json
             FROM documents AS d
             JOIN datasets AS ds ON ds.document_id = d.id
             WHERE d.id = ? AND d.kind = 'dataset'
@@ -965,6 +1132,7 @@ class FieldStore:
             "confidence": float(row["confidence"]),
             "refined_after_research": bool(row["refined_after_research"]),
             "cache_key": row["cache_key"],
+            "collection": self._json_value(row["collection_json"], None),
             "updated_at": row["updated_at"],
         }
 
@@ -1428,6 +1596,186 @@ class FieldStore:
             (url_hash_value,),
         ).fetchone()
         return None if row is None else dict(row)
+
+    # ------------------------------------------------------------------
+    # Hierarchy metadata and research models
+    # ------------------------------------------------------------------
+    def get_leaf(self, document_id: str) -> str | None:
+        row = self._connection().execute(
+            "SELECT leaf_field_id FROM documents WHERE id = ?", (document_id,)
+        ).fetchone()
+        return None if row is None else row["leaf_field_id"]
+
+    def set_leaf(self, document_id: str, field_id: str | None) -> None:
+        with self._transaction():
+            self._connection().execute(
+                "UPDATE documents SET leaf_field_id = ?, updated_at = ? "
+                "WHERE id = ?",
+                (field_id, utc_now_iso(), document_id),
+            )
+
+    def log_field_operation(
+        self,
+        *,
+        operation: str,
+        field_id: str,
+        old_parent_id: str | None = None,
+        new_parent_id: str | None = None,
+        old_level: int | None = None,
+        new_level: int | None = None,
+        document_id: str | None = None,
+        affected_documents: int = 0,
+        reason: str = "",
+        model: str | None = None,
+        run_id: str | None = None,
+    ) -> str:
+        identifier = f"fop_{uuid.uuid4().hex[:16]}"
+        with self._transaction():
+            self._connection().execute(
+                """
+                INSERT INTO field_operations
+                  (id, operation, field_id, old_parent_id, new_parent_id,
+                   old_level, new_level, document_id, affected_documents,
+                   reason, model, run_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    identifier,
+                    operation,
+                    field_id,
+                    old_parent_id,
+                    new_parent_id,
+                    old_level,
+                    new_level,
+                    document_id,
+                    int(affected_documents),
+                    reason,
+                    model,
+                    run_id,
+                    utc_now_iso(),
+                ),
+            )
+        return identifier
+
+    def field_operations(
+        self, *, field_id: str | None = None, limit: int = 100
+    ) -> list[dict]:
+        query = "SELECT * FROM field_operations"
+        params: list[object] = []
+        if field_id is not None:
+            query += " WHERE field_id = ?"
+            params.append(field_id)
+        query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(max(1, int(limit)))
+        return [
+            dict(row)
+            for row in self._connection().execute(query, params).fetchall()
+        ]
+
+    def hierarchy_version(self) -> int:
+        row = self._connection().execute(
+            "SELECT value FROM store_meta WHERE key = 'hierarchy_version'"
+        ).fetchone()
+        if row is None:
+            return 1
+        try:
+            return int(row["value"])
+        except (TypeError, ValueError):
+            return 1
+
+    def bump_hierarchy_version(self) -> int:
+        version = self.hierarchy_version() + 1
+        with self._transaction():
+            self._connection().execute(
+                "INSERT INTO store_meta (key, value) VALUES ('hierarchy_version', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (str(version),),
+            )
+        return version
+
+    def put_research_model(
+        self,
+        *,
+        document_id: str,
+        family: str,
+        spec_json: str,
+        evidence: str,
+        mapping_json: str = "{}",
+        applied: bool = False,
+        model_id: str | None = None,
+    ) -> str:
+        identifier = model_id or f"rm_{uuid.uuid4().hex[:16]}"
+        with self._transaction():
+            self._connection().execute(
+                """
+                INSERT INTO research_models
+                  (id, document_id, family, spec_json, mapping_json, evidence,
+                   applied, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  document_id = excluded.document_id,
+                  family = excluded.family,
+                  spec_json = excluded.spec_json,
+                  mapping_json = excluded.mapping_json,
+                  evidence = excluded.evidence,
+                  applied = excluded.applied
+                """,
+                (
+                    identifier,
+                    document_id,
+                    family,
+                    spec_json,
+                    mapping_json,
+                    evidence,
+                    int(bool(applied)),
+                    utc_now_iso(),
+                ),
+            )
+        return identifier
+
+    def list_research_models(
+        self,
+        *,
+        document_id: str | None = None,
+        applied: bool | None = None,
+    ) -> list[dict]:
+        query = "SELECT * FROM research_models"
+        clauses: list[str] = []
+        params: list[object] = []
+        if document_id is not None:
+            clauses.append("document_id = ?")
+            params.append(document_id)
+        if applied is not None:
+            clauses.append("applied = ?")
+            params.append(int(bool(applied)))
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at, id"
+        result: list[dict] = []
+        for row in self._connection().execute(query, params).fetchall():
+            payload = dict(row)
+            payload["spec"] = self._json_value(payload.pop("spec_json"), {})
+            payload["mapping"] = self._json_value(payload.pop("mapping_json"), {})
+            payload["applied"] = bool(payload["applied"])
+            result.append(payload)
+        return result
+
+    def set_collection(self, document_id: str, collection_json: str | None) -> None:
+        with self._transaction():
+            self._connection().execute(
+                "UPDATE datasets SET collection_json = ? WHERE document_id = ?",
+                (collection_json, document_id),
+            )
+
+    def get_collection(self, document_id: str) -> dict | None:
+        row = self._connection().execute(
+            "SELECT collection_json FROM datasets WHERE document_id = ?",
+            (document_id,),
+        ).fetchone()
+        if row is None or not row["collection_json"]:
+            return None
+        value = self._json_value(row["collection_json"], None)
+        return value if isinstance(value, dict) else None
 
     # ------------------------------------------------------------------
     # Centroids

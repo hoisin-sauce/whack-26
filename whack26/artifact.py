@@ -20,8 +20,10 @@ from .profile import DatasetProfile
 from .research.pipeline import ResearchResult
 from .research.scrape.models import ScrapeResult
 from .screen import ScreenSummary
+from .validation.generation_models import GenerationValidationResult
+from .validation.models import ValidationReport, summary_counts
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.3.0"
 _ABSOLUTE_MARKERS = ("/", "\\")
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("google_api_key", re.compile(r"AIza[0-9A-Za-z_\-]{20,}")),
@@ -255,12 +257,60 @@ class HypothesisSection(BaseModel):
     generation_history: list[dict[str, Any]] = PField(default_factory=list)
     execution: ExecutionSection
     critic: CriticSection | None = None
+    validation: ValidationReport | None = None
+    generation_validation: GenerationValidationResult | None = None
     warnings: list[str] = PField(default_factory=list)
 
 
 class CriticSummary(BaseModel):
     verdicts: dict[str, int] = PField(default_factory=dict)
     degraded: bool = False
+
+
+class ValidationSummary(BaseModel):
+    counts: dict[str, int] = PField(default_factory=dict)
+
+    @property
+    def total(self) -> int:
+        return sum(self.counts.values())
+
+
+class GenerationValidationSummary(BaseModel):
+    verdicts: dict[str, int] = PField(default_factory=dict)
+
+    @property
+    def total(self) -> int:
+        return sum(self.verdicts.values())
+
+
+class ModelSearchSection(BaseModel):
+    target_kind: str = "continuous"
+    metric: str = "r2"
+    selected_family: str | None = None
+    selected_metrics: dict[str, float] = PField(default_factory=dict)
+    candidate_count: int = 0
+    candidates: list[dict[str, Any]] = PField(default_factory=list)
+    warnings: list[str] = PField(default_factory=list)
+
+
+class VariantSection(BaseModel):
+    variants: list[dict[str, Any]] = PField(default_factory=list)
+    jumbled_label_leak: bool = False
+    pii_reliance: bool = False
+    verdict: str = "insufficient"
+    warnings: list[str] = PField(default_factory=list)
+
+
+class ResearchModelSection(BaseModel):
+    id: str
+    document_id: str
+    family: str
+    outcome: str | None = None
+    predictors: list[str] = PField(default_factory=list)
+    mapped_columns: list[str] = PField(default_factory=list)
+    confidence: float = 0.0
+    applied: bool = False
+    evidence: str = ""
 
 
 class Provenance(BaseModel):
@@ -280,6 +330,12 @@ class Artifact(BaseModel):
     screen: ScreenSection
     hypotheses: list[HypothesisSection] = PField(default_factory=list)
     critic_summary: CriticSummary
+    validation_summary: ValidationSummary | None = None
+    generation_validation_summary: GenerationValidationSummary | None = None
+    model_search: ModelSearchSection | None = None
+    variants: VariantSection | None = None
+    research_models: list[ResearchModelSection] = PField(default_factory=list)
+    collection: dict[str, Any] | None = None
     warnings: list[str] = PField(default_factory=list)
     provenance: Provenance
 
@@ -491,6 +547,8 @@ def _screen_section(screen: ScreenSummary) -> ScreenSection:
 def _hypothesis_section(
     hypothesis: GeneratedHypothesis,
     critic: CriticResult | None,
+    validation: ValidationReport | None = None,
+    generation_validation: GenerationValidationResult | None = None,
 ) -> HypothesisSection:
     payload = hypothesis.to_artifact()
     payload["execution"] = ExecutionSection.model_validate(payload["execution"])
@@ -498,8 +556,116 @@ def _hypothesis_section(
         payload["critic"] = CriticSection.model_validate(
             critic.model_dump(mode="json")
         )
+    if validation is not None:
+        payload["validation"] = validation
+    if generation_validation is not None:
+        payload["generation_validation"] = generation_validation
     payload["warnings"] = list(hypothesis.validation_warnings)
     return HypothesisSection.model_validate(payload)
+
+
+def _model_search_section(model_search: Any) -> ModelSearchSection | None:
+    if model_search is None:
+        return None
+    selected = getattr(model_search, "selected", None)
+    spec = getattr(selected, "spec", None) if selected is not None else None
+    candidates = []
+    for candidate in list(getattr(model_search, "candidates", []) or []):
+        candidate_spec = getattr(candidate, "spec", None)
+        candidates.append(
+            {
+                "family": getattr(candidate_spec, "family", None),
+                "features": list(getattr(candidate_spec, "features", []) or []),
+                "rank": getattr(candidate, "rank", None),
+                "selected": bool(getattr(candidate, "selected", False)),
+                "metrics": {
+                    str(name): float(value)
+                    for name, value in (getattr(candidate, "metrics", {}) or {}).items()
+                    if isinstance(value, (int, float))
+                },
+                "diagnostics": [
+                    {
+                        "name": getattr(item, "name", ""),
+                        "status": getattr(item, "status", "ok"),
+                        "message": getattr(item, "message", ""),
+                    }
+                    for item in (getattr(candidate, "diagnostics", []) or [])
+                ],
+            }
+        )
+    return ModelSearchSection(
+        target_kind=str(getattr(model_search, "target_kind", "continuous")),
+        metric=str(getattr(model_search, "metric", "r2")),
+        selected_family=getattr(spec, "family", None) if spec is not None else None,
+        selected_metrics={
+            str(name): float(value)
+            for name, value in (getattr(selected, "metrics", {}) or {}).items()
+            if isinstance(value, (int, float))
+        }
+        if selected is not None
+        else {},
+        candidate_count=len(candidates),
+        candidates=candidates,
+        warnings=list(getattr(model_search, "warnings", []) or []),
+    )
+
+
+def _variant_section(variants: Any) -> VariantSection | None:
+    if variants is None:
+        return None
+    if hasattr(variants, "model_dump"):
+        payload = variants.model_dump(mode="json")
+    elif isinstance(variants, dict):
+        payload = dict(variants)
+    else:
+        payload = {"value": str(variants)}
+    items = payload.get("variants") or payload.get("items") or []
+    if isinstance(items, dict):
+        expanded: list[dict[str, Any]] = []
+        for name, value in items.items():
+            if isinstance(value, dict):
+                item = dict(value)
+                item.setdefault("name", name)
+                expanded.append(item)
+        items = expanded
+    elif not isinstance(items, list):
+        items = [items] if items else []
+    return VariantSection(
+        variants=[
+            item if isinstance(item, dict) else {"value": str(item)}
+            for item in items
+        ],
+        jumbled_label_leak=bool(payload.get("jumbled_label_leak", False)),
+        pii_reliance=bool(payload.get("pii_reliance", False)),
+        verdict=str(payload.get("verdict", "insufficient")),
+        warnings=[str(item) for item in payload.get("warnings", []) or []],
+    )
+
+
+def _research_model_sections(values: Sequence[Any]) -> list[ResearchModelSection]:
+    sections: list[ResearchModelSection] = []
+    for value in values:
+        payload = (
+            value.model_dump(mode="json")
+            if hasattr(value, "model_dump")
+            else dict(value)
+        )
+        sections.append(
+            ResearchModelSection(
+                id=str(payload.get("id", "")),
+                document_id=str(payload.get("document_id", "")),
+                family=str(payload.get("family", "")),
+                outcome=payload.get("outcome"),
+                predictors=[str(item) for item in payload.get("predictors", []) or []],
+                mapped_columns=[
+                    str(item) for item in payload.get("mapped_columns", []) or []
+                ],
+                confidence=float(payload.get("confidence", 0.0) or 0.0),
+                applied=bool(payload.get("applied", False)),
+                evidence=str(payload.get("evidence", "")),
+            )
+        )
+    return sections
 
 
 def _package_versions() -> dict[str, str]:
@@ -541,9 +707,17 @@ def build_artifact(
     corpus_version: str | None,
     base_dir: Path,
     scrape: ScrapeResult | None = None,
+    validations: dict[str, ValidationReport] | None = None,
+    generation_validations: dict[str, GenerationValidationResult] | None = None,
+    model_search: Any | None = None,
+    variants: Any | None = None,
+    research_models: Sequence[Any] = (),
+    collection: dict[str, Any] | None = None,
 ) -> Artifact:
     """Assemble and validate the artifact from completed stage outputs."""
     by_id = {critic.hypothesis_id: critic for critic in critics}
+    validation_by_id = dict(validations or {})
+    generation_by_id = dict(generation_validations or {})
     verdicts: dict[str, int] = {
         "pass": 0,
         "refine": 0,
@@ -554,6 +728,17 @@ def build_artifact(
     for critic in critics:
         verdicts[critic.verdict] = verdicts.get(critic.verdict, 0) + 1
         degraded = degraded or critic.degraded
+
+    generation_verdicts: dict[str, int] = {
+        "pass": 0,
+        "refine": 0,
+        "reject": 0,
+        "insufficient": 0,
+    }
+    for result in generation_by_id.values():
+        generation_verdicts[result.verdict] = (
+            generation_verdicts.get(result.verdict, 0) + 1
+        )
 
     all_warnings: list[str] = []
     seen: set[str] = set()
@@ -571,10 +756,37 @@ def build_artifact(
         factors=_factor_sections(factors, profile),
         screen=_screen_section(screen),
         hypotheses=[
-            _hypothesis_section(hypothesis, by_id.get(hypothesis.id))
+            _hypothesis_section(
+                hypothesis,
+                by_id.get(hypothesis.id),
+                validation_by_id.get(hypothesis.id),
+                generation_by_id.get(hypothesis.id),
+            )
             for hypothesis in hypotheses
         ],
         critic_summary=CriticSummary(verdicts=verdicts, degraded=degraded),
+        validation_summary=(
+            ValidationSummary(
+                counts=summary_counts(
+                    [
+                        validation_by_id[hypothesis.id]
+                        for hypothesis in hypotheses
+                        if hypothesis.id in validation_by_id
+                    ]
+                )
+            )
+            if validation_by_id
+            else None
+        ),
+        generation_validation_summary=(
+            GenerationValidationSummary(verdicts=generation_verdicts)
+            if generation_by_id
+            else None
+        ),
+        model_search=_model_search_section(model_search),
+        variants=_variant_section(variants),
+        research_models=_research_model_sections(research_models),
+        collection=dict(collection) if collection is not None else None,
         warnings=all_warnings,
         provenance=Provenance(
             python=platform.python_version(),

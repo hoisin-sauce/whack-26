@@ -421,6 +421,100 @@ def target_feature_references(code: str, target: str) -> list[int]:
     return sorted(suspicious)
 
 
+def _parameter_names(node: ast.FunctionDef) -> list[str]:
+    return [argument.arg for argument in node.args.posonlyargs + node.args.args]
+
+
+def _validation_surface_warnings(
+    code: str, target: str | None
+) -> list[str]:
+    """Check the optional fit/predict surface used by statistical validation.
+
+    Missing helpers are a warning, not a contract error: legacy modules still
+    execute. The validator then reports partial or in-sample results.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+    warnings: list[str] = []
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    fit = functions.get("_fit")
+    predict = functions.get("_predict")
+    if fit is None:
+        warnings.append(
+            "validation_contract: missing `_fit(df, seed=0, params=None)`; "
+            "out-of-sample and sensitivity layers will be skipped"
+        )
+    else:
+        names = _parameter_names(fit)
+        if not names or names[0] != "df":
+            warnings.append(
+                "validation_contract: `_fit` must take the frame as its first argument"
+            )
+    if predict is None:
+        warnings.append(
+            "validation_contract: missing `_predict(model, df)`; "
+            "out-of-sample and sensitivity layers will be skipped"
+        )
+    else:
+        names = _parameter_names(predict)
+        if len(names) < 2 or names[1] != "df":
+            warnings.append(
+                "validation_contract: `_predict` must have the signature "
+                "`_predict(model, df)`"
+            )
+    parameters_node = None
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(
+                isinstance(item, ast.Name) and item.id == "PARAMETERS"
+                for item in targets
+            ):
+                parameters_node = node.value
+                break
+    if parameters_node is None:
+        warnings.append(
+            "validation_contract: missing module-level `PARAMETERS` dict; "
+            "the parameter-sensitivity layer will be skipped"
+        )
+    elif not isinstance(parameters_node, ast.Dict) or not parameters_node.keys:
+        warnings.append(
+            "validation_contract: `PARAMETERS` must be a non-empty dict of "
+            "numeric model hyperparameters"
+        )
+    elif not any(
+        isinstance(value, ast.Constant)
+        and isinstance(value.value, (int, float))
+        and not isinstance(value.value, bool)
+        and value.value > 0
+        for value in parameters_node.values
+    ):
+        warnings.append(
+            "validation_contract: `PARAMETERS` needs at least one positive "
+            "numeric value so the sensitivity layer is non-degenerate"
+        )
+    if predict is not None and target:
+        for child in ast.walk(predict):
+            if (
+                isinstance(child, ast.Subscript)
+                and isinstance(child.slice, ast.Constant)
+                and child.slice.value == target
+                and isinstance(child.value, ast.Name)
+            ):
+                warnings.append(
+                    "validation_contract: `_predict` references the target column "
+                    f"{target!r}; prediction-time frames omit it"
+                )
+                break
+    return warnings
+
+
 @dataclass
 class MetadataValidation:
     ok: bool
@@ -443,6 +537,7 @@ def validate_hypothesis(
     static = validate_code(draft.code, target=target)
     if not static.ok:
         errors.extend(static.messages)
+    warnings.extend(_validation_surface_warnings(draft.code, target))
 
     if not str(getattr(draft, "rationale", "")).strip():
         errors.append("rationale must not be empty")

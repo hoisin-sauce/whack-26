@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 
@@ -91,6 +92,29 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--refresh", action="store_true", help="ignore cache TTL")
     run.add_argument("--seed", type=int, default=0, help="random seed for generated code")
     run.add_argument(
+        "--validate",
+        action="store_true",
+        help="run the four-layer statistical validator after hypothesis generation",
+    )
+    run.add_argument(
+        "--validation-timeout",
+        type=float,
+        default=120.0,
+        help="seconds per hypothesis validation subprocess (default: 120)",
+    )
+    run.add_argument(
+        "--validation-num-permutations",
+        type=int,
+        default=500,
+        help="Monte Carlo permutations for validation (default: 500)",
+    )
+    run.add_argument(
+        "--validation-train-split",
+        type=float,
+        default=0.70,
+        help="chronological train split for validation (default: 0.70)",
+    )
+    run.add_argument(
         "--scrape",
         action="store_true",
         help="enable semantic scraping of research documents",
@@ -99,6 +123,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--fetch",
         action="store_true",
         help="enable the compliant HTTP fetcher for scraping (robots-aware)",
+    )
+    run.add_argument(
+        "--model-search",
+        action="store_true",
+        help="run the automated regression model search",
+    )
+    run.add_argument(
+        "--variants",
+        action="store_true",
+        help="build anonymized and jumbled-label dataset variants",
+    )
+    run.add_argument(
+        "--validate-generation",
+        action="store_true",
+        help="review each hypothesis against the dataset collection design",
+    )
+    run.add_argument(
+        "--collection-json",
+        default=None,
+        help="collection-method metadata JSON file",
+    )
+    run.add_argument(
+        "--collection-field",
+        action="append",
+        default=None,
+        metavar="KEY=VALUE",
+        help="collection-method metadata override (repeatable)",
     )
     run.set_defaults(func=_cmd_run)
 
@@ -161,6 +212,103 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate-artifact", help="validate a run artifact")
     validate.add_argument("path", help="path to artifact.json")
     validate.set_defaults(func=_cmd_validate_artifact)
+
+    validate_models = sub.add_parser(
+        "validate-models",
+        help="run the four-layer statistical validator over generated hypotheses",
+    )
+    validate_models.add_argument(
+        "path",
+        help="run directory or path to artifact.json",
+    )
+    validate_models.add_argument(
+        "--out",
+        default=None,
+        help="validation JSON output path (default: <run>/validation.json)",
+    )
+    validate_models.add_argument(
+        "--write-artifact",
+        action="store_true",
+        help="embed the reports in artifact.json and regenerate preview.md",
+    )
+    validate_models.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="seconds per hypothesis subprocess (default: 120)",
+    )
+    validate_models.add_argument(
+        "--num-permutations",
+        type=int,
+        default=500,
+        help="Monte Carlo permutations (default: 500)",
+    )
+    validate_models.add_argument(
+        "--train-split-ratio",
+        type=float,
+        default=0.70,
+        help="chronological train split (default: 0.70)",
+    )
+    validate_models.add_argument(
+        "--min-dsr",
+        type=float,
+        default=0.95,
+        help="Layer 1 DSR threshold (default: 0.95)",
+    )
+    validate_models.add_argument(
+        "--max-p",
+        type=float,
+        default=0.05,
+        help="Layer 2 p-value threshold (default: 0.05)",
+    )
+    validate_models.add_argument(
+        "--periods-per-year",
+        type=float,
+        default=None,
+        help="annualisation factor; inferred from the time column when omitted",
+    )
+    validate_models.add_argument(
+        "--sensitivity-range",
+        type=float,
+        default=0.10,
+        help="Layer 4 perturbation range (default: 0.10)",
+    )
+    validate_models.add_argument(
+        "--max-performance-drop",
+        type=float,
+        default=0.20,
+        help="Layer 4 maximum score drop (default: 0.20)",
+    )
+    validate_models.add_argument(
+        "--max-decay-tolerance",
+        type=float,
+        default=None,
+        help="Layer 3 maximum OOS decay; engine default when omitted",
+    )
+    validate_models.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="seed passed to the generated model's fit helper",
+    )
+    validate_models.add_argument(
+        "--generation",
+        action="store_true",
+        help="also re-run claim/design generation validation over the artifact",
+    )
+    validate_models.add_argument(
+        "--collection-json",
+        default=None,
+        help="collection-method metadata JSON file for generation validation",
+    )
+    validate_models.add_argument(
+        "--collection-field",
+        action="append",
+        default=None,
+        metavar="KEY=VALUE",
+        help="collection-method metadata override (repeatable)",
+    )
+    validate_models.set_defaults(func=_cmd_validate_models)
 
     preview = sub.add_parser("preview", help="render preview.md from a run artifact")
     preview.add_argument("artifact", help="path to artifact.json")
@@ -315,6 +463,27 @@ def _cmd_classify(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    from .validation.collection import parse_collection_metadata
+    from .validation.models import ValidationConfig
+
+    validation_config = ValidationConfig(
+        timeout_seconds=args.validation_timeout,
+        num_permutations=args.validation_num_permutations,
+        train_split_ratio=args.validation_train_split,
+    )
+    collection = None
+    if args.collection_json or args.collection_field:
+        try:
+            collection = parse_collection_metadata(
+                json_source=args.collection_json,
+                fields=args.collection_field,
+            )
+        except ValueError as exc:
+            print(
+                f"error: invalid collection metadata: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
     try:
         outcome = run_pipeline(
             input_path=Path(args.input),
@@ -326,6 +495,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             refresh=args.refresh,
             scrape=True if args.scrape else None,
             scrape_fetch=True if args.fetch else None,
+            model_search=True if args.model_search else None,
+            variants=True if args.variants else None,
+            validate_generation=True if args.validate_generation else None,
+            collection=collection,
+            validate=args.validate,
+            validation_config=validation_config,
             csv_sep=args.csv_sep,
             out_dir=Path(args.out) if args.out else None,
             store_path=Path(args.db) if args.db else None,
@@ -359,6 +534,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
             f"hypothesis: {hypothesis.id} {hypothesis.method_family} "
             f"{hypothesis.execution.status} critic={verdict}"
         )
+        validation = outcome.validations.get(hypothesis.id)
+        if validation is not None:
+            failed = ", ".join(validation.failed_layers()) or "none"
+            print(
+                f"validation: {hypothesis.id} {validation.status} "
+                f"failed={failed}"
+            )
     if outcome.scrape is not None:
         print(
             f"scrape: {len(outcome.scrape.documents)} document(s), "
@@ -367,6 +549,21 @@ def _cmd_run(args: argparse.Namespace) -> int:
         )
         if outcome.scrape_md_path is not None:
             print(f"scrape markdown: {outcome.scrape_md_path}")
+    if outcome.model_search is not None:
+        selected = getattr(outcome.model_search, "selected", None)
+        family = getattr(getattr(selected, "spec", None), "family", None)
+        print(
+            f"model search: {len(outcome.model_search.candidates)} candidate(s), "
+            f"selected={family or 'none'}"
+        )
+    if outcome.variants is not None:
+        verdict = getattr(outcome.variants, "verdict", "unknown")
+        print(f"variants: verdict={verdict}")
+    for hypothesis_id, result in outcome.generation_validations.items():
+        print(
+            f"generation validation: {hypothesis_id} {result.verdict} "
+            f"issues={len(result.issues)}"
+        )
     print(f"artifact: {outcome.artifact_path}")
     print(f"preview: {outcome.preview_path}")
     return 0
@@ -644,6 +841,121 @@ def _cmd_preview(args: argparse.Namespace) -> int:
         print(f"error: preview failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
     print(f"wrote {destination}")
+    return 0
+
+
+def _cmd_validate_models(args: argparse.Namespace) -> int:
+    from .validation.models import ValidationConfig
+    from .validation.pipeline import validate_run
+
+    config = ValidationConfig(
+        min_dsr=args.min_dsr,
+        max_p=args.max_p,
+        train_split_ratio=args.train_split_ratio,
+        num_permutations=args.num_permutations,
+        sensitivity_range=args.sensitivity_range,
+        max_performance_drop=args.max_performance_drop,
+        max_decay_tolerance=args.max_decay_tolerance,
+        periods_per_year=args.periods_per_year,
+        timeout_seconds=args.timeout,
+        seed=args.seed,
+    )
+    try:
+        result = validate_run(
+            Path(args.path),
+            config=config,
+            out=Path(args.out) if args.out else None,
+            write_artifact=args.write_artifact,
+        )
+    except (OSError, ValueError) as exc:
+        print(
+            f"error: validation failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"run: {result.run_dir}")
+    for report in result.reports:
+        failed = ", ".join(report.failed_layers()) or "none"
+        print(
+            f"validation: {report.hypothesis_id} {report.status} "
+            f"failed={failed}"
+        )
+        for warning in report.warnings:
+            print(f"warning: {report.hypothesis_id}: {warning}")
+    summary = {}
+    for report in result.reports:
+        summary[report.status] = summary.get(report.status, 0) + 1
+    print(
+        "summary: "
+        + ", ".join(f"{key}={value}" for key, value in sorted(summary.items()))
+    )
+    print(f"validation json: {result.report_path}")
+    if args.write_artifact:
+        print(f"artifact: {result.artifact_path}")
+    if args.generation:
+        from .artifact import Artifact
+        from .validation.collection import parse_collection_metadata
+        from .validation.generation import GenerationValidator
+
+        artifact_path = Path(args.path)
+        if artifact_path.is_dir():
+            artifact_path = artifact_path / "artifact.json"
+        try:
+            artifact = Artifact.model_validate(
+                json.loads(artifact_path.read_text(encoding="utf-8"))
+            )
+            collection = None
+            if args.collection_json or args.collection_field:
+                collection = parse_collection_metadata(
+                    json_source=args.collection_json,
+                    fields=args.collection_field,
+                )
+            elif artifact.collection:
+                collection = artifact.collection
+            settings = Settings.from_env()
+            validator = GenerationValidator(settings=settings)
+            gen_results = []
+            run_dir = artifact_path.parent
+            for section in artifact.hypotheses:
+                payload = section.model_dump(mode="json")
+                code_path = run_dir / section.code_path
+                try:
+                    payload["code"] = code_path.read_text(encoding="utf-8")
+                except OSError:
+                    payload["code"] = ""
+                hypothesis = SimpleNamespace(**payload)
+                gen_result = validator.validate(
+                    hypothesis,
+                    collection=collection,
+                    code_hash=section.code_sha256,
+                )
+                gen_results.append(gen_result)
+                print(
+                    f"generation validation: {section.id} "
+                    f"{gen_result.verdict} issues={len(gen_result.issues)}"
+                )
+            (run_dir / "generation_validation.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0.0",
+                        "generated_at": utc_now_iso(),
+                        "results": [
+                            item.model_dump(mode="json") for item in gen_results
+                        ],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except (OSError, ValueError) as exc:
+            print(
+                f"error: generation validation failed: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            return 1
     return 0
 
 

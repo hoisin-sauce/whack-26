@@ -38,18 +38,23 @@ FAMILY_DESCRIPTIONS: dict[MethodFamily, str] = {
         "Fit one linear model. Use ordinary least squares via "
         "`numpy.linalg.lstsq` for a numeric target, or a logistic link via "
         "`scipy.optimize.minimize` for a binary target. Optionally transform a "
-        "feature with log or sqrt. Do not use sklearn or statsmodels."
+        "feature with log or sqrt. Expose one positive numeric hyperparameter "
+        "as `PARAMETERS = {\"ridge\": 1e-3}` and apply it as a small ridge "
+        "penalty. Do not use sklearn or statsmodels."
     ),
     "group_comparison": (
         "Compare a group statistic. Choose one categorical column, or bin one "
         "numeric factor into quantiles, and predict the target group mean (or "
         "binary rate). Every row gets its group's statistic; unseen groups fall "
-        "back to the global mean or rate."
+        "back to the global mean or rate. Expose one integer hyperparameter as "
+        "`PARAMETERS = {\"min_group_size\": 2}`; clamp it to at least 1."
     ),
     "interaction_or_derived": (
         "Fit one linear model with either one interaction between two factors or "
         "one ratio/derived feature. Use `numpy.linalg.lstsq` for a numeric target "
         "or a logistic link via `scipy.optimize.minimize` for a binary target. "
+        "Expose one positive numeric hyperparameter as "
+        "`PARAMETERS = {\"ridge\": 1e-3}` and apply it as a small ridge penalty. "
         "State how the interaction or derived feature was constructed."
     ),
 }
@@ -204,6 +209,11 @@ class HypothesisContext:
     factors: Sequence[Factor]
     records: Sequence[ResearchRecord]
     screen: ScreenSummary
+    model_search: Any | None = None
+    research_models: Sequence[Any] = field(default_factory=tuple)
+    variant_report: Any | None = None
+    context_pack: Any | None = None
+    collection: Any | None = None
 
     @property
     def dataset_columns(self) -> list[str]:
@@ -319,6 +329,74 @@ def _target_text(context: HypothesisContext) -> str:
     return f"Target: {target} | link suggestion: {link}"
 
 
+def _model_search_text(value: Any) -> str:
+    if value is None:
+        return "(none)"
+    candidates = list(getattr(value, "candidates", []) or [])
+    if not candidates:
+        return "(no candidates)"
+    lines: list[str] = []
+    selected = getattr(value, "selected", None)
+    if selected is not None:
+        lines.append(f"Selected family: {getattr(getattr(selected, 'spec', None), 'family', '?')}")
+    for candidate in candidates[:5]:
+        spec = getattr(candidate, "spec", None)
+        family = getattr(spec, "family", "?")
+        features = ", ".join(getattr(spec, "features", []) or [])
+        metrics = getattr(candidate, "metrics", {}) or {}
+        rendered = ", ".join(
+            f"{name}={float(score):.3f}"
+            for name, score in metrics.items()
+            if isinstance(score, (int, float))
+        )
+        diagnostics = [
+            f"{getattr(item, 'name', '?')}:{getattr(item, 'status', '?')}"
+            for item in (getattr(candidate, "diagnostics", []) or [])
+        ]
+        lines.append(
+            f"- {family}: features=[{features}] metrics=[{rendered}]"
+            + (f" diagnostics=[{', '.join(diagnostics)}]" if diagnostics else "")
+        )
+    return "\n".join(lines)
+
+
+def _research_models_text(values: Sequence[Any]) -> str:
+    if not values:
+        return "(none)"
+    lines: list[str] = []
+    for value in values[:5]:
+        family = getattr(value, "family", "?")
+        outcome = getattr(value, "outcome", "?")
+        predictors = ", ".join(getattr(value, "mapped_columns", []) or [])
+        confidence = getattr(value, "confidence", None)
+        evidence = str(getattr(value, "evidence", ""))[:240]
+        lines.append(
+            f"- {family} for {outcome}; columns=[{predictors}]; "
+            f"confidence={confidence}; evidence={evidence}"
+        )
+    return "\n".join(lines)
+
+
+def _variant_text(value: Any) -> str:
+    if value is None:
+        return "(not evaluated)"
+    if hasattr(value, "model_dump"):
+        payload = value.model_dump(mode="json")
+    elif isinstance(value, dict):
+        payload = value
+    else:
+        payload = {"value": str(value)}
+    keys = (
+        "jumbled_label_leak",
+        "pii_reliance",
+        "anonymized",
+        "jumbled",
+        "warnings",
+    )
+    summary = {key: payload[key] for key in keys if key in payload}
+    return str(summary)
+
+
 def _base_prompt(
     context: HypothesisContext,
     family: MethodFamily,
@@ -350,15 +428,52 @@ def _base_prompt(
         + _factors_text(context.factors),
         "Top research records (use their ids in `source_ids`):\n"
         + _records_text(context.records),
-        "Dataset columns:\n" + _columns_text(context),
-        "Write one Python module with exactly these two public functions:\n"
+    ]
+    if context.context_pack is not None:
+        from .context import render_context_pack
+
+        parts.append(
+            "Ranked context pack (field path, ancestor documents, statistics):\n"
+            + render_context_pack(context.context_pack)
+        )
+    if context.model_search is not None:
+        parts.append(
+            "Automated model search (prefer these specifications when they fit):\n"
+            + _model_search_text(context.model_search)
+        )
+    if context.research_models:
+        parts.append(
+            "Applicable models extracted from research (cite the source and map "
+            "predictors to these columns):\n"
+            + _research_models_text(context.research_models)
+        )
+    if context.variant_report is not None:
+        parts.append(
+            "Dataset variant checks (jumbled labels and anonymization):\n"
+            + _variant_text(context.variant_report)
+        )
+    parts.extend(
+        [
+            "Dataset columns:\n" + _columns_text(context),
+        "Write one Python module with exactly these two public functions and the "
+        "private validation helpers:\n"
         "```python\n"
+        "import numpy as np\n"
         "import pandas as pd\n\n"
+        "PARAMETERS = {\"ridge\": 1e-3}  # at least one real numeric hyperparameter\n\n"
         "def applies(df: pd.DataFrame) -> bool:\n"
         "    \"\"\"Return True when the hypothesis can run on df. Must not raise.\"\"\"\n\n"
+        "def _fit(df: pd.DataFrame, seed: int = 0, params: dict | None = None):\n"
+        "    \"\"\"Fit on df and return a model object. The target is available here.\"\"\"\n"
+        "    ...\n\n"
+        "def _predict(model, df: pd.DataFrame):\n"
+        "    \"\"\"Predict one value per row. df has features only; never read the target.\"\"\"\n"
+        "    ...\n\n"
         "def run(df: pd.DataFrame, seed: int = 0) -> dict:\n"
         "    \"\"\"Fit the model and return predictions. Must not mutate df.\"\"\"\n"
-        "    ...\n"
+        "    model = _fit(df, seed, PARAMETERS)\n"
+        "    predict_frame = df.drop(columns=[TARGET]) if TARGET in df.columns else df\n"
+        "    return {\"predictions\": _predict(model, predict_frame), \"target\": TARGET}\n"
         "```\n"
         "`run` must return a JSON-serializable dict with:\n"
         "- `predictions`: one value per row (list, pandas Series, or numpy array);\n"
@@ -367,6 +482,13 @@ def _base_prompt(
         "- optional `model_summary` dict and `notes` string.\n",
         "Rules:\n"
         "- Start `run` by copying the frame (`df = df.copy()`) and never mutate input.\n"
+        "- Implement `_fit` and `_predict` so the statistical validator can fit on "
+        "a training split and predict held-out rows. `_predict` must return one "
+        "prediction per input row and must never read the target column.\n"
+        "- `PARAMETERS` must be a module-level dict with at least one positive "
+        "numeric hyperparameter that `_fit` actually uses. The validator perturbs it.\n"
+        f"- Replace `TARGET` in the example with the actual target column name: "
+        f"{target!r}. If there is no target, use `None` and do not drop a column.\n"
         + target_rules
         + "- Handle missing values explicitly and say what you did in `notes`.\n"
         "- Call `np.random.seed(seed)` and `random.seed(seed)` if you sample.\n"
@@ -383,7 +505,8 @@ def _base_prompt(
         f"Method family: {family}\n{FAMILY_DESCRIPTIONS[family]}",
         "Return only the JSON object requested by the schema. The `code` value must "
         "be the complete module source, not a diff or a fragment.",
-    ]
+        ]
+    )
     if feedback:
         parts.append("Previous attempt feedback:\n" + feedback)
     if simpler:

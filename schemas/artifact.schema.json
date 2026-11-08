@@ -519,6 +519,79 @@
       "title": "FieldSection",
       "type": "object"
     },
+    "GenerationValidationResult": {
+      "properties": {
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "verdict": {
+          "default": "insufficient",
+          "enum": [
+            "pass",
+            "refine",
+            "reject",
+            "insufficient"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/ValidationCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "missing_information": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Information",
+          "type": "array"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "corpus_version": {
+          "default": "",
+          "title": "Corpus Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypothesis_id"
+      ],
+      "title": "GenerationValidationResult",
+      "type": "object"
+    },
+    "GenerationValidationSummary": {
+      "properties": {
+        "verdicts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Verdicts",
+          "type": "object"
+        }
+      },
+      "title": "GenerationValidationSummary",
+      "type": "object"
+    },
     "HypothesisSection": {
       "properties": {
         "id": {
@@ -624,6 +697,28 @@
           ],
           "default": null
         },
+        "validation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValidationReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "generation_validation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationValidationResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "warnings": {
           "items": {
             "type": "string"
@@ -642,6 +737,61 @@
         "execution"
       ],
       "title": "HypothesisSection",
+      "type": "object"
+    },
+    "ModelSearchSection": {
+      "properties": {
+        "target_kind": {
+          "default": "continuous",
+          "title": "Target Kind",
+          "type": "string"
+        },
+        "metric": {
+          "default": "r2",
+          "title": "Metric",
+          "type": "string"
+        },
+        "selected_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Family"
+        },
+        "selected_metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Selected Metrics",
+          "type": "object"
+        },
+        "candidate_count": {
+          "default": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "candidates": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "ModelSearchSection",
       "type": "object"
     },
     "Provenance": {
@@ -709,6 +859,70 @@
         "query"
       ],
       "title": "QuerySection",
+      "type": "object"
+    },
+    "ResearchModelSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "family": {
+          "title": "Family",
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "predictors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Predictors",
+          "type": "array"
+        },
+        "mapped_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mapped Columns",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "applied": {
+          "default": false,
+          "title": "Applied",
+          "type": "boolean"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "document_id",
+        "family"
+      ],
+      "title": "ResearchModelSection",
       "type": "object"
     },
     "ResearchRecordSection": {
@@ -1222,11 +1436,384 @@
       ],
       "title": "TargetSection",
       "type": "object"
+    },
+    "ValidationCheck": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "pass",
+          "enum": [
+            "pass",
+            "flag",
+            "fail",
+            "not_applicable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "severity": {
+          "default": "none",
+          "enum": [
+            "none",
+            "minor",
+            "major",
+            "fatal"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Citations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ValidationCheck",
+      "type": "object"
+    },
+    "ValidationIssue": {
+      "properties": {
+        "chunk": {
+          "default": "S0-how-to-use",
+          "title": "Chunk",
+          "type": "string"
+        },
+        "severity": {
+          "default": "minor",
+          "enum": [
+            "minor",
+            "major",
+            "fatal"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "finding": {
+          "title": "Finding",
+          "type": "string"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        },
+        "fix": {
+          "default": "",
+          "title": "Fix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding"
+      ],
+      "title": "ValidationIssue",
+      "type": "object"
+    },
+    "ValidationLayerReport": {
+      "properties": {
+        "layer": {
+          "title": "Layer",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "skipped",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "metrics": {
+          "additionalProperties": true,
+          "title": "Metrics",
+          "type": "object"
+        }
+      },
+      "required": [
+        "layer",
+        "status"
+      ],
+      "title": "ValidationLayerReport",
+      "type": "object"
+    },
+    "ValidationReport": {
+      "description": "One hypothesis's validation result, embedded in the artifact.",
+      "properties": {
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "error",
+          "enum": [
+            "passed",
+            "failed",
+            "partial",
+            "skipped",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "verdict": {
+          "default": "inconclusive",
+          "enum": [
+            "pass",
+            "fail",
+            "inconclusive"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "rows_used": {
+          "default": 0,
+          "title": "Rows Used",
+          "type": "integer"
+        },
+        "dropped_rows": {
+          "default": 0,
+          "title": "Dropped Rows",
+          "type": "integer"
+        },
+        "feature_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Feature Columns",
+          "type": "array"
+        },
+        "periods_per_year": {
+          "default": 1.0,
+          "title": "Periods Per Year",
+          "type": "number"
+        },
+        "periods_per_year_source": {
+          "default": "default",
+          "title": "Periods Per Year Source",
+          "type": "string"
+        },
+        "in_sample_fallback": {
+          "default": false,
+          "title": "In Sample Fallback",
+          "type": "boolean"
+        },
+        "has_fit_predict": {
+          "default": false,
+          "title": "Has Fit Predict",
+          "type": "boolean"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "layers": {
+          "items": {
+            "$ref": "#/$defs/ValidationLayerReport"
+          },
+          "title": "Layers",
+          "type": "array"
+        },
+        "dsr_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dsr Score"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Value"
+        },
+        "oos_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Oos Score"
+        },
+        "decay_rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decay Rate"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tolerance"
+        },
+        "pss_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pss Message"
+        },
+        "runtime_ms": {
+          "default": 0,
+          "title": "Runtime Ms",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hypothesis_id"
+      ],
+      "title": "ValidationReport",
+      "type": "object"
+    },
+    "ValidationSummary": {
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        }
+      },
+      "title": "ValidationSummary",
+      "type": "object"
+    },
+    "VariantSection": {
+      "properties": {
+        "variants": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Variants",
+          "type": "array"
+        },
+        "jumbled_label_leak": {
+          "default": false,
+          "title": "Jumbled Label Leak",
+          "type": "boolean"
+        },
+        "pii_reliance": {
+          "default": false,
+          "title": "Pii Reliance",
+          "type": "boolean"
+        },
+        "verdict": {
+          "default": "insufficient",
+          "title": "Verdict",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "VariantSection",
+      "type": "object"
     }
   },
   "properties": {
     "schema_version": {
-      "default": "1.1.0",
+      "default": "1.3.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -1261,6 +1848,70 @@
     },
     "critic_summary": {
       "$ref": "#/$defs/CriticSummary"
+    },
+    "validation_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ValidationSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "generation_validation_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GenerationValidationSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model_search": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelSearchSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "variants": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VariantSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "research_models": {
+      "items": {
+        "$ref": "#/$defs/ResearchModelSection"
+      },
+      "title": "Research Models",
+      "type": "array"
+    },
+    "collection": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Collection"
     },
     "warnings": {
       "items": {

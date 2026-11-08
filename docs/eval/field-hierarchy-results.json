@@ -1,0 +1,574 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-11-08T05:57:32Z",
+  "dataset": "synthetic-field-hierarchy-v1",
+  "strategy": "keyword",
+  "status": "pass",
+  "metrics": {
+    "total": 30,
+    "exact": 30,
+    "exact_rate": 1.0,
+    "ancestor": 0,
+    "ancestor_rate": 0.0,
+    "exact_or_ancestor": 30,
+    "exact_or_ancestor_rate": 1.0,
+    "over_specific": 0,
+    "over_specificity_rate": 0.0,
+    "under_specific": 0,
+    "under_specificity_rate": 0.0,
+    "path_consistent": 30,
+    "path_consistency_rate": 1.0,
+    "branches_predicted": 1,
+    "branches_accepted": 1,
+    "branch_precision": 1.0,
+    "promotions_predicted": 0,
+    "promotions_accepted": 0,
+    "promotion_precision": 1.0
+  },
+  "gates": [
+    {
+      "name": "Over-specific attachment",
+      "status": "pass",
+      "detail": "0/30 (0.0%); allowed 0%",
+      "blocking": true
+    },
+    {
+      "name": "Exact or ancestor match",
+      "status": "pass",
+      "detail": "placements at or above the labelled field: 30/30 (100.0%); required 80%",
+      "blocking": true
+    },
+    {
+      "name": "Path consistency",
+      "status": "pass",
+      "detail": "predicted root-to-leaf paths: 30/30 (100.0%); required 100%",
+      "blocking": true
+    },
+    {
+      "name": "Branch precision",
+      "status": "pass",
+      "detail": "accepted new fields: 1/1 (100.0%); required 80%",
+      "blocking": true
+    },
+    {
+      "name": "Promotion precision",
+      "status": "skip",
+      "detail": "promotions that improve the hierarchy: no predictions",
+      "blocking": false
+    },
+    {
+      "name": "Under-specificity",
+      "status": "pass",
+      "detail": "placements no broader than the labelled field: 30/30 (100.0%); required 50%",
+      "blocking": false
+    }
+  ],
+  "cases": [
+    {
+      "document_id": "doc_penguin_ecology",
+      "expected_leaf_id": "field_ecology",
+      "predicted_leaf_id": "field_ecology",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_ecology"
+      ]
+    },
+    {
+      "document_id": "doc_coral_restoration",
+      "expected_leaf_id": "field_conservation",
+      "predicted_leaf_id": "field_conservation",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_ecology",
+        "field_conservation"
+      ]
+    },
+    {
+      "document_id": "doc_maize_genetics",
+      "expected_leaf_id": "field_genetics",
+      "predicted_leaf_id": "field_genetics",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_genetics"
+      ]
+    },
+    {
+      "document_id": "doc_mammal_biology",
+      "expected_leaf_id": "field_biology",
+      "predicted_leaf_id": "field_biology",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology"
+      ]
+    },
+    {
+      "document_id": "doc_minimum_wage",
+      "expected_leaf_id": "field_labor",
+      "predicted_leaf_id": "field_labor",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_economics",
+        "field_labor"
+      ]
+    },
+    {
+      "document_id": "doc_mortgage_rates",
+      "expected_leaf_id": "field_housing",
+      "predicted_leaf_id": "field_housing",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_economics",
+        "field_housing"
+      ]
+    },
+    {
+      "document_id": "doc_economic_growth",
+      "expected_leaf_id": "field_economics",
+      "predicted_leaf_id": "field_economics",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_economics"
+      ]
+    },
+    {
+      "document_id": "doc_neural_classifier",
+      "expected_leaf_id": "field_ml",
+      "predicted_leaf_id": "field_ml",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_cs",
+        "field_ml"
+      ]
+    },
+    {
+      "document_id": "doc_database_networking",
+      "expected_leaf_id": "field_systems",
+      "predicted_leaf_id": "field_systems",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_cs",
+        "field_systems"
+      ]
+    },
+    {
+      "document_id": "doc_algorithm_design",
+      "expected_leaf_id": "field_cs",
+      "predicted_leaf_id": "field_cs",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_cs"
+      ]
+    },
+    {
+      "document_id": "doc_outbreak_surveillance",
+      "expected_leaf_id": "field_epi",
+      "predicted_leaf_id": "field_epi",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_health",
+        "field_epi"
+      ]
+    },
+    {
+      "document_id": "doc_vaccination_mortality",
+      "expected_leaf_id": "field_health",
+      "predicted_leaf_id": "field_health",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_health"
+      ]
+    },
+    {
+      "document_id": "doc_science_method",
+      "expected_leaf_id": "field_science",
+      "predicted_leaf_id": "field_science",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science"
+      ]
+    },
+    {
+      "document_id": "doc_ecosystem_services",
+      "expected_leaf_id": "field_ecology",
+      "predicted_leaf_id": "field_ecology",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_ecology"
+      ]
+    },
+    {
+      "document_id": "doc_genetic_variation",
+      "expected_leaf_id": "field_genetics",
+      "predicted_leaf_id": "field_genetics",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_genetics"
+      ]
+    },
+    {
+      "document_id": "doc_unemployment",
+      "expected_leaf_id": "field_labor",
+      "predicted_leaf_id": "field_labor",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_economics",
+        "field_labor"
+      ]
+    },
+    {
+      "document_id": "doc_real_estate",
+      "expected_leaf_id": "field_housing",
+      "predicted_leaf_id": "field_housing",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_economics",
+        "field_housing"
+      ]
+    },
+    {
+      "document_id": "doc_model_training",
+      "expected_leaf_id": "field_ml",
+      "predicted_leaf_id": "field_ml",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_cs",
+        "field_ml"
+      ]
+    },
+    {
+      "document_id": "doc_compiler_systems",
+      "expected_leaf_id": "field_systems",
+      "predicted_leaf_id": "field_systems",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_cs",
+        "field_systems"
+      ]
+    },
+    {
+      "document_id": "doc_epidemic_models",
+      "expected_leaf_id": "field_epi",
+      "predicted_leaf_id": "field_epi",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_health",
+        "field_epi"
+      ]
+    },
+    {
+      "document_id": "doc_health_disparities",
+      "expected_leaf_id": "field_health",
+      "predicted_leaf_id": "field_health",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_health"
+      ]
+    },
+    {
+      "document_id": "doc_biodiversity",
+      "expected_leaf_id": "field_ecology",
+      "predicted_leaf_id": "field_ecology",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_ecology"
+      ]
+    },
+    {
+      "document_id": "doc_agroecology",
+      "expected_leaf_id": "field_agroecology",
+      "predicted_leaf_id": "field_agroecology",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_ecology",
+        "field_agroecology"
+      ]
+    },
+    {
+      "document_id": "doc_public_health_systems",
+      "expected_leaf_id": "field_health",
+      "predicted_leaf_id": "field_health",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_health"
+      ]
+    },
+    {
+      "document_id": "doc_software_testing",
+      "expected_leaf_id": "field_cs",
+      "predicted_leaf_id": "field_cs",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_cs"
+      ]
+    },
+    {
+      "document_id": "doc_protected_areas",
+      "expected_leaf_id": "field_conservation",
+      "predicted_leaf_id": "field_conservation",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology",
+        "field_ecology",
+        "field_conservation"
+      ]
+    },
+    {
+      "document_id": "doc_macro_economics",
+      "expected_leaf_id": "field_economics",
+      "predicted_leaf_id": "field_economics",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_economics"
+      ]
+    },
+    {
+      "document_id": "doc_housing_markets",
+      "expected_leaf_id": "field_housing",
+      "predicted_leaf_id": "field_housing",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_economics",
+        "field_housing"
+      ]
+    },
+    {
+      "document_id": "doc_deep_learning",
+      "expected_leaf_id": "field_ml",
+      "predicted_leaf_id": "field_ml",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_cs",
+        "field_ml"
+      ]
+    },
+    {
+      "document_id": "doc_species_richness",
+      "expected_leaf_id": "field_biology",
+      "predicted_leaf_id": "field_biology",
+      "relation": "exact",
+      "exact": true,
+      "ancestor": false,
+      "over_specific": false,
+      "under_specific": false,
+      "path_consistent": true,
+      "path_ids": [
+        "field_science",
+        "field_biology"
+      ]
+    }
+  ],
+  "branches": {
+    "predicted": [
+      {
+        "field_id": "field_agroecology",
+        "parent_id": "field_ecology",
+        "name": "Agroecology"
+      }
+    ],
+    "accepted": [
+      {
+        "field_id": "field_agroecology",
+        "parent_id": "field_ecology",
+        "name": "Agroecology"
+      }
+    ],
+    "precision": 1.0
+  },
+  "promotions": {
+    "predicted": [],
+    "expected": [
+      {
+        "new_field_id": "field_data_science",
+        "old_parent_id": "field_ml",
+        "new_parent_id": "field_cs"
+      },
+      {
+        "new_field_id": "field_computational_biology",
+        "old_parent_id": "field_genetics",
+        "new_parent_id": "field_biology"
+      }
+    ],
+    "precision": 1.0
+  },
+  "warnings": []
+}
