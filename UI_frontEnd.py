@@ -3,8 +3,8 @@ import sys
 
 import numpy as np
 import pandas as pd
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QPalette
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFormLayout,
@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTabWidget,
+    QTextBrowser,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -137,7 +139,7 @@ QPushButton#runButton:pressed {
     border-color: #0e131a;
 }
 
-QTextEdit {
+QTextEdit, QTextBrowser {
     background-color: #faf9f7;
     color: #21293e;
     border: 1px solid #e2ded7;
@@ -158,7 +160,7 @@ QTextEdit#logOutput:hover {
     border-color: #9d968c;
 }
 
-QTextEdit#summaryOutput {
+QTextEdit#summaryOutput, QTextBrowser#summaryOutput {
     font-family: "Segoe UI", Arial, sans-serif;
     font-size: 10pt;
 }
@@ -210,6 +212,161 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: transparent;
 }
+
+QTabWidget {
+    background: transparent;
+    border: none;
+}
+
+QTabWidget::pane {
+    background: transparent;
+    border: none;
+    top: -1px;
+}
+
+QTabWidget::tab-bar {
+    left: 32px;
+}
+
+QTabBar {
+    background: transparent;
+    qproperty-drawBase: 0;
+}
+
+QTabBar::tab {
+    background: transparent;
+    color: #8b857b;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 11px 16px 9px 16px;
+    margin-right: 6px;
+    font-size: 9pt;
+    font-weight: 600;
+}
+
+QTabBar::tab:hover {
+    color: #21293e;
+}
+
+QTabBar::tab:selected {
+    color: #21293e;
+    border-bottom: 2px solid #21293e;
+}
+
+QTabBar::close-button {
+    margin-left: 6px;
+}
+
+QTabBar::close-button:hover {
+    background-color: #e2ded7;
+}
+
+QPushButton#addTabButton {
+    background-color: transparent;
+    color: #21293e;
+    border: 1px solid #d9d5cf;
+    border-radius: 0px;
+    padding: 7px 14px;
+    margin: 6px 32px 6px 0px;
+    font-size: 8.5pt;
+    font-weight: 700;
+}
+
+QPushButton#addTabButton:hover {
+    background-color: #ece9e5;
+    border-color: #21293e;
+}
+
+QPushButton#addTabButton:pressed {
+    background-color: #e2ded7;
+}
+"""
+
+
+# Default styling for generated HTML reports. The report producer is expected
+# to emit semantic HTML without CSS; this stylesheet supplies the Brevan
+# Howard palette and typography inside the summary panel.
+REPORT_STYLESHEET = """
+h1 {
+    font-family: Georgia;
+    font-size: 20pt;
+    font-weight: normal;
+    color: #21293e;
+    margin-top: 0px;
+    margin-bottom: 6px;
+}
+h2 {
+    font-family: Georgia;
+    font-size: 14pt;
+    font-weight: normal;
+    color: #21293e;
+    margin-top: 14px;
+    margin-bottom: 4px;
+}
+h3 {
+    font-size: 10.5pt;
+    font-weight: 600;
+    color: #21293e;
+    margin-top: 12px;
+    margin-bottom: 3px;
+}
+p {
+    color: #434c60;
+    margin-top: 4px;
+    margin-bottom: 7px;
+}
+a {
+    color: #21293e;
+    text-decoration: underline;
+}
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+th {
+    background-color: #f6f5f2;
+    color: #21293e;
+    font-weight: 600;
+    text-align: left;
+    border: 1px solid #d9d5cf;
+    padding: 6px 8px;
+}
+td {
+    color: #434c60;
+    border: 1px solid #d9d5cf;
+    padding: 6px 8px;
+}
+ul, ol {
+    margin-top: 4px;
+    margin-bottom: 7px;
+}
+li {
+    color: #434c60;
+    margin-bottom: 3px;
+}
+hr {
+    border: 0px;
+    border-top: 1px solid #d9d5cf;
+    margin-top: 12px;
+    margin-bottom: 12px;
+}
+blockquote {
+    border-left: 3px solid #bdb4a8;
+    margin-left: 0px;
+    padding-left: 10px;
+    color: #434c60;
+}
+code, pre {
+    font-family: Consolas;
+    background-color: #f6f5f2;
+    color: #21293e;
+}
+strong, b {
+    color: #21293e;
+    font-weight: 600;
+}
 """
 
 
@@ -235,59 +392,49 @@ class DragDropTextEdit(QTextEdit):
                 self.parent_dashboard.handle_dropped_file(file_path)
 
 
-class QuantDashboard(QWidget):
-    def __init__(self):
-        super().__init__()
+class HtmlSummaryView(QTextBrowser):
+    """Read-only summary panel that renders HTML reports generated elsewhere."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setOpenExternalLinks(True)
+        self.setReadOnly(True)
+        self.document().setDefaultStyleSheet(REPORT_STYLESHEET)
+        self.document().setDefaultFont(QFont("Segoe UI", 10))
+
+
+class DatasetWorkspace(QWidget):
+    """Independent validation workspace for a single dataset."""
+
+    dataset_name_changed = pyqtSignal(str)
+    tab_name_changed = pyqtSignal()
+
+    def __init__(self, parent=None, default_title="Dataset"):
+        super().__init__(parent)
         self.dropped_file_path = None
         self.loaded_dataframe = None
+        self.default_title = default_title
+        self.dataset_name = None
+        self.custom_tab_name = None
         self.initUI()
 
+    def set_tab_name(self, name):
+        """Set an explicit tab name; ``None``/empty restores auto-naming."""
+        if name is None:
+            self.custom_tab_name = None
+        else:
+            cleaned = " ".join(str(name).split())
+            self.custom_tab_name = cleaned or None
+        self.tab_name_changed.emit()
+
+    def suggested_tab_name(self):
+        """Return the preferred tab name before uniqueness handling."""
+        return self.custom_tab_name or self.dataset_name or self.default_title
+
     def initUI(self):
-        self.setWindowTitle("Autonomous Quant Researcher - Dashboard")
-        self.resize(1180, 880)
-        self.setMinimumSize(1024, 720)
-        self.setStyleSheet(APP_STYLESHEET)
-
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#9d968c"))
-        self.setPalette(palette)
-
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        # --- Title Header ---
-        header_card = QFrame()
-        header_card.setObjectName("headerCard")
-        header_layout = QVBoxLayout(header_card)
-        header_layout.setContentsMargins(34, 22, 34, 24)
-        header_layout.setSpacing(6)
-
-        eyebrow_label = QLabel("QUANT RESEARCH / VALIDATION ENGINE")
-        eyebrow_label.setObjectName("eyebrowLabel")
-        eyebrow_font = QFont("Segoe UI", 8)
-        eyebrow_font.setWeight(QFont.Weight.DemiBold)
-        eyebrow_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.4)
-        eyebrow_label.setFont(eyebrow_font)
-        header_layout.addWidget(eyebrow_label)
-
-        self.title_label = QLabel("Brevan Howard Track: Autonomous Validation Engine")
-        self.title_label.setObjectName("titleLabel")
-        self.title_label.setWordWrap(True)
-        header_layout.addWidget(self.title_label)
-
-        subtitle_label = QLabel(
-            "Configure your constraints, drop a dataset, and run the master validation pass."
-        )
-        subtitle_label.setObjectName("subtitleLabel")
-        subtitle_label.setWordWrap(True)
-        header_layout.addWidget(subtitle_label)
-
-        main_layout.addWidget(header_card)
-
-        content_layout = QVBoxLayout()
-        content_layout.setContentsMargins(32, 22, 32, 22)
-        content_layout.setSpacing(16)
+        main_layout.setContentsMargins(32, 22, 32, 22)
+        main_layout.setSpacing(16)
 
         # --- CONFIGURATION & METADATA ---
         config_row = QHBoxLayout()
@@ -375,7 +522,7 @@ class QuantDashboard(QWidget):
         restrictions_group.setLayout(restrictions_container)
         config_row.addWidget(restrictions_group, 1)
 
-        content_layout.addLayout(config_row)
+        main_layout.addLayout(config_row)
 
         # --- RUN BUTTON ---
         self.run_btn = QPushButton("Run Master Validation Engine")
@@ -383,7 +530,7 @@ class QuantDashboard(QWidget):
         self.run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.run_btn.setMinimumHeight(50)
         self.run_btn.clicked.connect(self.run_validation)
-        content_layout.addWidget(self.run_btn)
+        main_layout.addWidget(self.run_btn)
 
         # --- SPLIT LAYOUT FOR LOGS AND SUMMARY REPORT ---
         results_layout = QHBoxLayout()
@@ -414,7 +561,8 @@ class QuantDashboard(QWidget):
         summary_group = QGroupBox("04 / VALIDATION SUMMARY REPORT")
         summary_layout = QVBoxLayout()
         summary_layout.setContentsMargins(16, 14, 16, 16)
-        self.summary_output = QTextEdit()
+
+        self.summary_output = HtmlSummaryView(self)
         self.summary_output.setObjectName("summaryOutput")
         self.summary_output.setReadOnly(True)
         self.summary_output.setPlaceholderText(
@@ -424,9 +572,26 @@ class QuantDashboard(QWidget):
         summary_group.setLayout(summary_layout)
         results_layout.addWidget(summary_group, 2)
 
-        content_layout.addLayout(results_layout, 1)
+        main_layout.addLayout(results_layout, 1)
 
-        main_layout.addLayout(content_layout, 1)
+    def load_summary_html(self, html):
+        """Render a generated HTML report in the summary panel.
+
+        Call this from the report generator with semantic HTML. The report does
+        not need any CSS; the panel applies the Brevan Howard report stylesheet
+        automatically.
+        """
+        if isinstance(html, bytes):
+            html = html.decode("utf-8", errors="replace")
+        if not isinstance(html, str):
+            raise TypeError("HTML report must be provided as a string.")
+        if not html.strip():
+            self.log_output.append("\nEmpty HTML report received; summary unchanged.")
+            return
+
+        self.summary_output.setHtml(html)
+        self.summary_output.verticalScrollBar().setValue(0)
+        self.log_output.append("\nHTML report embedded in summary.")
 
     def handle_dropped_file(self, file_path):
         self.dropped_file_path = file_path
@@ -453,6 +618,11 @@ class QuantDashboard(QWidget):
                 f"Columns detected: {list(self.loaded_dataframe.columns)}"
             )
             self.log_output.append(TARGET_CONTRACT)
+
+            dataset_label = os.path.splitext(os.path.basename(file_path))[0].strip()
+            if dataset_label:
+                self.dataset_name = dataset_label
+                self.dataset_name_changed.emit(dataset_label)
         except Exception as e:
             self.log_output.append(f"Error parsing file with Pandas: {str(e)}")
 
@@ -634,6 +804,231 @@ class QuantDashboard(QWidget):
         except Exception as e:
             self.log_output.append(f"Engine Execution Error: {str(e)}")
             self.summary_output.append(f"Error executing engine: {str(e)}")
+
+
+class QuantDashboard(QWidget):
+    """Tabbed shell hosting one fully independent workspace per dataset."""
+
+    def __init__(self):
+        super().__init__()
+        self._dataset_counter = 0
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle("Autonomous Quant Researcher - Dashboard")
+        self.resize(1180, 880)
+        self.setMinimumSize(1024, 720)
+        self.setStyleSheet(APP_STYLESHEET)
+
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#9d968c"))
+        self.setPalette(palette)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # --- Title Header ---
+        header_card = QFrame()
+        header_card.setObjectName("headerCard")
+        header_layout = QVBoxLayout(header_card)
+        header_layout.setContentsMargins(34, 22, 34, 20)
+        header_layout.setSpacing(6)
+
+        eyebrow_label = QLabel("QUANT RESEARCH / VALIDATION ENGINE")
+        eyebrow_label.setObjectName("eyebrowLabel")
+        eyebrow_font = QFont("Segoe UI", 8)
+        eyebrow_font.setWeight(QFont.Weight.DemiBold)
+        eyebrow_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.4)
+        eyebrow_label.setFont(eyebrow_font)
+        header_layout.addWidget(eyebrow_label)
+
+        self.title_label = QLabel("Brevan Howard Track: Autonomous Validation Engine")
+        self.title_label.setObjectName("titleLabel")
+        self.title_label.setWordWrap(True)
+        header_layout.addWidget(self.title_label)
+
+        subtitle_label = QLabel(
+            "Each tab holds an unrelated dataset. Configure constraints, drop a "
+            "dataset, and run the master validation pass independently per tab."
+        )
+        subtitle_label.setObjectName("subtitleLabel")
+        subtitle_label.setWordWrap(True)
+        header_layout.addWidget(subtitle_label)
+
+        main_layout.addWidget(header_card)
+
+        # --- DATASET TABS ---
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("datasetTabs")
+        self.tabs.setTabsClosable(True)
+        self.tabs.setMovable(True)
+        self.tabs.setElideMode(Qt.TextElideMode.ElideNone)
+        self.tabs.setUsesScrollButtons(True)
+        self.tabs.tabCloseRequested.connect(self.close_tab)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
+        self.add_tab_button = QPushButton("+  NEW DATASET")
+        self.add_tab_button.setObjectName("addTabButton")
+        self.add_tab_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_tab_button.clicked.connect(self.add_dataset_tab)
+        self.tabs.setCornerWidget(self.add_tab_button, Qt.Corner.TopRightCorner)
+
+        main_layout.addWidget(self.tabs, 1)
+
+        QShortcut(QKeySequence("Ctrl+T"), self, activated=self.add_dataset_tab)
+        QShortcut(QKeySequence("Ctrl+W"), self, activated=self._close_current_tab)
+
+        self.add_dataset_tab()
+
+    # ------------------------------------------------------------------ tabs
+    def add_dataset_tab(self, focus=True):
+        """Create a new isolated dataset workspace and return its tab reference."""
+        self._dataset_counter += 1
+        workspace = DatasetWorkspace(
+            default_title=f"Dataset {self._dataset_counter}"
+        )
+        index = self.tabs.addTab(workspace, workspace.default_title)
+        workspace.dataset_name_changed.connect(
+            lambda _name, ws=workspace: self._refresh_tab_titles()
+        )
+        workspace.tab_name_changed.connect(self._refresh_tab_titles)
+        workspace.data_desc_input.textChanged.connect(
+            lambda _text, ws=workspace: self._sync_tab_tooltip(ws)
+        )
+        self.tabs.setTabToolTip(index, workspace.default_title)
+        if focus:
+            self.tabs.setCurrentIndex(index)
+        return workspace
+
+    def close_tab(self, index):
+        if index < 0:
+            return
+        workspace = self.tabs.widget(index)
+        if workspace is None:
+            return
+        self.tabs.removeTab(index)
+        workspace.deleteLater()
+        if self.tabs.count() == 0:
+            self.add_dataset_tab()
+        else:
+            self._refresh_tab_titles()
+
+    def _close_current_tab(self):
+        self.close_tab(self.tabs.currentIndex())
+
+    def _on_tab_changed(self, _index):
+        self._sync_window_title()
+
+    def _auto_tab_title(self, workspace):
+        """Derive a unique tab name from the loaded dataset."""
+        base = workspace.dataset_name or workspace.default_title
+        existing = {
+            self.tabs.tabText(i)
+            for i in range(self.tabs.count())
+            if self.tabs.widget(i) is not workspace
+        }
+        if base not in existing:
+            return base
+        suffix = 2
+        while f"{base} ({suffix})" in existing:
+            suffix += 1
+        return f"{base} ({suffix})"
+
+    def _tab_title_for(self, workspace):
+        if workspace.custom_tab_name:
+            return workspace.custom_tab_name
+        return self._auto_tab_title(workspace)
+
+    def _refresh_tab_titles(self):
+        """Recompute every auto-generated tab name after a rename or close."""
+        for index in range(self.tabs.count()):
+            workspace = self.tabs.widget(index)
+            if workspace is None:
+                continue
+            self.tabs.setTabText(index, self._tab_title_for(workspace))
+        self._sync_window_title()
+
+    def _sync_tab_tooltip(self, workspace):
+        index = self.tabs.indexOf(workspace)
+        if index == -1:
+            return
+        description = workspace.data_desc_input.text().strip()
+        self.tabs.setTabToolTip(index, description or self._tab_title_for(workspace))
+
+    def _sync_window_title(self, title=None):
+        tabs = self.__dict__.get("tabs")
+        if title is None and tabs is not None and tabs.currentIndex() != -1:
+            title = tabs.tabText(tabs.currentIndex())
+        self.setWindowTitle(f"Autonomous Quant Researcher - {title or 'Dashboard'}")
+
+    # -------------------------------------------------- cross-tab public API
+    def _resolve_workspace(self, tab_ref):
+        """Resolve a tab reference to a workspace.
+
+        ``tab_ref`` may be ``None`` for the active tab, an integer tab index,
+        or a workspace returned by :meth:`add_dataset_tab`.
+        """
+        if tab_ref is None:
+            workspace = self.tabs.currentWidget()
+            if workspace is None:
+                raise IndexError("No dataset tab is active.")
+            return workspace
+        if isinstance(tab_ref, DatasetWorkspace):
+            if self.tabs.indexOf(tab_ref) == -1:
+                raise IndexError(
+                    "The supplied workspace is not attached to this dashboard."
+                )
+            return tab_ref
+        if isinstance(tab_ref, int):
+            workspace = self.tabs.widget(tab_ref)
+            if workspace is None:
+                raise IndexError(f"No dataset tab exists at index {tab_ref}.")
+            return workspace
+        raise TypeError("tab_ref must be a tab index, a DatasetWorkspace, or None.")
+
+    def set_tab_name(self, name, tab_ref=None):
+        """Set a tab name explicitly.
+
+        ``tab_ref`` accepts a tab index or the workspace returned by
+        :meth:`add_dataset_tab`; ``None`` targets the active tab. Pass ``None``
+        or an empty string as ``name`` to restore dataset-based auto-naming.
+        """
+        workspace = self._resolve_workspace(tab_ref)
+        workspace.set_tab_name(name)
+        return workspace
+
+    def set_report(self, html, tab_ref=None):
+        """Render generated HTML in a specific tab's summary report.
+
+        ``tab_ref`` accepts a tab index or the workspace returned by
+        :meth:`add_dataset_tab`; ``None`` targets the active tab. The report
+        needs no CSS; the Brevan Howard report stylesheet is applied here.
+        """
+        workspace = self._resolve_workspace(tab_ref)
+        workspace.load_summary_html(html)
+        return workspace
+
+    def load_summary_html(self, html, tab_index=None):
+        """Backwards-compatible alias for :meth:`set_report`."""
+        return self.set_report(html, tab_index)
+
+    def current_workspace(self):
+        return self.tabs.currentWidget()
+
+    def workspaces(self):
+        return [self.tabs.widget(i) for i in range(self.tabs.count())]
+
+    def __getattr__(self, name):
+        # Convenience passthrough so dashboard.<field> targets the active tab.
+        tabs = self.__dict__.get("tabs")
+        if tabs is not None:
+            workspace = tabs.currentWidget()
+            if workspace is not None and hasattr(workspace, name):
+                return getattr(workspace, name)
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r}"
+        )
 
 
 if __name__ == "__main__":
