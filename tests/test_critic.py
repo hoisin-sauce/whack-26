@@ -102,7 +102,7 @@ def settings(corpus_path: Path | None = None) -> Settings:
 def test_corpus_parses_version_and_retrieves_five_chunks() -> None:
     corpus = load_corpus(Settings.from_env({}, mock=True).corpus_path)
     assert corpus is not None
-    assert corpus.version.startswith("1.0.0+")
+    assert corpus.version.startswith("1.0.1+")
     assert corpus.get("S0-how-to-use") is not None
     assert corpus.get("S2-leakage") is not None
     assert corpus.get("S10-reporting") is not None
@@ -206,7 +206,7 @@ def test_critic_passes_clean_hypothesis(tmp_path: Path) -> None:
         settings=settings(),
     )
     assert result.verdict == "pass", [issue.finding for issue in result.issues]
-    assert result.corpus_version.startswith("1.0.0+")
+    assert result.corpus_version.startswith("1.0.1+")
     assert result.retrieved_chunks[0] == "S0-how-to-use"
     assert result.degraded is False
 

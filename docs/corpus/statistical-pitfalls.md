@@ -1,8 +1,8 @@
 ---
 title: "Statistical Modelling Pitfalls — Method-Critic Corpus"
 corpus_id: statistical-pitfalls
-version: 1.0.0
-date: 2026-11-07
+version: 1.0.1
+date: 2026-11-08
 ticket: "hoisin-sauce/whack-26#10"
 audience: "method critic (LLM agent)"
 scope: >
@@ -32,7 +32,7 @@ source_policy: >
 
 **What it is not for.** Do not use it to re-score a model's accuracy, AUC, RMSE, or calibration curve. Another component does that. Use it to decide whether the performance number was obtained honestly (no leakage, correct split, no test-set reuse), whether the model family matches the outcome and estimand, and whether the claim is the kind of claim the design can support.
 
-**Chunking contract.** Each `##` section is a self-contained retrieval chunk. Each begins with a **Chunk ID**, **Triggers**, and **Critic question**. Subheadings are safe to split further. If a retrieved chunk is ambiguous, fall back to the section's "Verdict defaults" and "Red flags".
+**Chunking contract.** Each `##` section that declares a **Chunk ID** is a self-contained retrieval chunk; §11 (checklist) and §12 (phrasebook) are appendices for human reference and are not retrieved. Each retrievable chunk begins with a **Chunk ID**, **Triggers**, and **Critic question**. Subheadings are safe to split further. If a retrieved chunk is ambiguous, fall back to the section's "Verdict defaults" and "Red flags".
 
 ### 0.1 Claim-type gate (do this first)
 
@@ -181,7 +181,7 @@ Box (1976); Brunton, Proctor & Kutz (2016); Cameron & Trivedi (2013); Fine & Gra
 
 ### 2.1 Definition
 
-Data leakage is a spurious relationship between predictors and the target that arises as an artefact of data collection, sampling, or preprocessing. It will not be present in the distribution about which the claim is made, so it usually inflates apparent performance (Kaufman et al., 2012; Kapoor & Narayanan, 2023). Leakage is not only an ML problem: it affects any analysis that selects features, tunes choices, or preprocesses before holding data out.
+Data leakage is the introduction of information about the target that should not be legitimately available at prediction time (Kaufman et al., 2012). In its common tabular form it appears as a spurious relationship between predictors and the target that arises as an artefact of data collection, sampling, or preprocessing; it will not be present in the distribution about which the claim is made, so it usually inflates apparent performance (Kapoor & Narayanan, 2023). Leakage is not only an ML problem: it affects any analysis that selects features, tunes choices, or preprocesses before holding data out.
 
 ### 2.2 Leakage taxonomy
 
@@ -193,7 +193,7 @@ Data leakage is a spurious relationship between predictors and the target that a
 | **L3.2** | Non-independence | same patient, site, subject, or cluster in train and test | group/block split at the cluster level |
 | **L3.3** | Sampling bias in test distribution | test set from a different population, site, or period than the claim | define target population; external validation; report distribution shift |
 
-The L1/L2/L3 structure follows Kapoor & Narayanan's (2023) eight-type taxonomy; the practical test is the same: *would this information be available, in this form, when the claim is used?*
+The L1/L2/L3 structure follows Kapoor & Narayanan's (2023) eight-type taxonomy; the table merges their four L1 subtypes (no test set; preprocessing on train+test; feature selection on train+test; duplicates) into a single row, and their L2 is a single category. The practical test is the same: *would this information be available, in this form, when the claim is used?*
 
 ### 2.3 Pipeline audit
 
@@ -265,16 +265,16 @@ A p-value is not the probability that the null hypothesis is true, nor the proba
 |---|---|---|---|
 | **Bonferroni** | family-wise error rate (FWER) | small, pre-specified family; any dependence | conservative; power loss |
 | **Holm** | FWER | same as Bonferroni, uniformly more powerful | still conservative with many tests |
-| **Benjamini–Hochberg** | false discovery rate (FDR) | large discovery scans; independent or positive dependence | does not control FWER |
+| **Benjamini–Hochberg** | false discovery rate (FDR) | large discovery scans; independent tests (positive dependence under PRDS is covered by Benjamini & Yekutieli, 2001) | does not control FWER |
 | **Benjamini–Yekutieli** | FDR | arbitrary dependence | more conservative than BH |
 | **Permutation / randomization** | exact error rate under the design | exchangeable units; designed experiments | requires a valid randomization scheme |
 | **Hierarchical gatekeeping** | FWER/FDR over pre-specified families | multiple endpoints with a logical order | families must be pre-specified |
 
-Sources: Benjamini & Hochberg (1995); Bland & Altman (1995); Bender & Lange (2001).
+Sources: Benjamini & Hochberg (1995); Benjamini & Yekutieli (2001); Bland & Altman (1995); Bender & Lange (2001); Holm (1979).
 
 ### 3.3 When adjustment is expected — and when it is not
 
-Adjustment is expected for **confirmatory** claims: a pre-specified primary outcome tested alongside many secondary outcomes, subgroup claims, feature scans (omics, imaging, text), and model selection that is presented as inference. It is not a mechanical requirement for a single pre-specified primary analysis, or for descriptive/exploratory work. The right response to an exploratory scan is to label it exploratory, report the full search, and replicate — not to pretend a Bonferroni correction turns it into confirmation (Rothman, 1990; Bender & Lange, 2001).
+Adjustment is expected for **confirmatory** claims: a pre-specified primary outcome tested alongside many secondary outcomes, subgroup claims, feature scans (omics, imaging, text), and model selection that is presented as inference. It is not a mechanical requirement for a single pre-specified primary analysis, or for descriptive/exploratory work. Rothman (1990) argues that routine adjustment is inappropriate outside contrived settings; the broader guidance is to label an exploratory scan as exploratory, report the full search, and replicate it rather than pretend a Bonferroni correction turns it into confirmation (Rothman, 1990; Bender & Lange, 2001).
 
 The family to correct is the set of tests that supports the claim, not every test in the paper. State the family and the error rate.
 
@@ -321,7 +321,7 @@ Subgroup claims need: a pre-specified subgroup, an interaction test (not two sep
 
 ### 3.9 Sources
 
-Bender & Lange (2001); Benjamini & Hochberg (1995); Berk et al. (2013); Bland & Altman (1995); Gelman & Loken (2014); Greenland et al. (2016); Head et al. (2015); Ioannidis (2005); Kerr (1998); Nosek et al. (2018); Rothman (1990); Rothwell (2005); Simonsohn, Simmons & Nelson (2020); Steegen et al. (2016); Taylor & Tibshirani (2015); Wang et al. (2007); Wasserstein & Lazar (2016); White (2000); Wicherts et al. (2016).
+Bender & Lange (2001); Benjamini & Hochberg (1995); Benjamini & Yekutieli (2001); Berk et al. (2013); Bland & Altman (1995); Gelman & Loken (2014); Greenland et al. (2016); Head et al. (2015); Holm (1979); Ioannidis (2005); Kerr (1998); Nosek et al. (2018); Rothman (1990); Rothwell (2005); Simonsohn, Simmons & Nelson (2020); Steegen et al. (2016); Taylor & Tibshirani (2015); Wang et al. (2007); Wasserstein & Lazar (2016); White (2000); Wicherts et al. (2016).
 
 ---
 
@@ -354,6 +354,8 @@ A causal claim needs an explicit counterfactual contrast (e.g., ATE, ATT, LATE),
 - **SUTVA / no interference.** One unit's treatment does not affect another's outcome, and there is a single version of treatment (Imbens & Rubin, 2015; Hernán & Robins, 2020).
 - **Correct measurement and timing.** Treatment, outcome, confounders, and follow-up must be measured at the right times. Immortal time and post-treatment adjustment are fatal (Suissa, 2008).
 
+This five-item list is a synthesis: Hernán & Robins (2020) present exchangeability, positivity, and consistency as the three core conditions and fold no interference into consistency; Westreich & Cole (2010) add no measurement error and correct model specification.
+
 Because exchangeability is untestable, a causal claim without a sensitivity analysis is incomplete. Report an E-value or another bias analysis, and use negative controls where possible (VanderWeele & Ding, 2017; Lipsitch, Tchetgen Tchetgen & Cohen, 2010). Formal omitted-variable-bias sensitivity analysis is an alternative when a plausible unmeasured confounder can be specified (Cinelli & Hazlett, 2020).
 
 ### 4.3 Confounders, mediators, and colliders
@@ -377,10 +379,10 @@ Draw the DAG before choosing covariates. "Control for everything" is not a strat
 | **RCT** | randomization, allocation concealment, blinding, adherence, attrition | baseline balance, CONSORT flow, intention-to-treat analysis |
 | **Target trial emulation** | eligibility, treatment strategies, assignment, time zero, follow-up, outcome, causal contrast | explicit target-trial table; positivity; sensitivity analysis (Hernán & Robins, 2016) |
 | **Propensity score** | measured confounders only; treatment model; common support | standardized mean differences, overlap, balance plots; not AUC (Rosenbaum & Rubin, 1983; Austin, 2011) |
-| **Instrumental variable** | relevance, exclusion restriction, independence, monotonicity (for LATE) | first-stage strength, weak-instrument diagnostics, over-identification tests (Angrist, Imbens & Rubin, 1996; Bound, Jaeger & Baker, 1995) |
+| **Instrumental variable** | SUTVA, relevance, exclusion restriction, independence, monotonicity (for LATE) | first-stage strength, weak-instrument diagnostics, over-identification tests (Angrist, Imbens & Rubin, 1996; Bound, Jaeger & Baker, 1995) |
 | **Regression discontinuity** | continuity of potential outcomes at the cutoff; no manipulation | density test, covariate balance, bandwidth and polynomial sensitivity (Imbens & Lemieux, 2008; McCrary, 2008) |
 | **Difference-in-differences** | parallel trends, no anticipation, stable composition | event-study pre-trends; group-time ATTs or TWFE weight diagnostics under staggered adoption (Roth et al., 2023; Goodman-Bacon, 2021; Callaway & Sant'Anna, 2021) |
-| **Synthetic control** | donor pool, no interference, pre-treatment fit | placebo tests, leave-one-out, pre-period fit (Abadie, Diamond & Hainmueller, 2010) |
+| **Synthetic control** | donor pool, no interference, pre-treatment fit | placebo tests, pre-period fit (Abadie, Diamond & Hainmueller, 2010); leave-one-out robustness (Abadie, Diamond & Hainmueller, 2015) |
 | **Survival / time-to-event** | time zero, non-informative censoring, proportional hazards, competing risks | Schoenfeld residuals, cumulative incidence, immortal-time audit (Grambsch & Therneau, 1994; Fine & Gray, 1999; Suissa, 2008) |
 
 ### 4.5 Prediction-specific checks
@@ -418,7 +420,7 @@ Verbs matter. "Causes", "reduces", "increases", "improves", "leads to", "impact 
 
 ### 4.9 Sources
 
-Abadie, Diamond & Hainmueller (2010); Angrist, Imbens & Rubin (1996); Austin (2011); Bound, Jaeger & Baker (1995); Bradford Hill (1965); Callaway & Sant'Anna (2021); Cinelli, Forney & Pearl (2022); Cole & Frangakis (2009); Collins et al. (2015); Debray et al. (2015); Fine & Gray (1999); Goodman-Bacon (2021); Grambsch & Therneau (1994); Greenland, Pearl & Robins (1999); Haber et al. (2018); Hernán, Hernández-Díaz & Robins (2004); Hernán, Hsu & Healy (2019); Hernán & Robins (2016, 2020); Imbens & Lemieux (2008); Imbens & Rubin (2015); Lipsitch, Tchetgen Tchetgen & Cohen (2010); McCrary (2008); Munafò et al. (2018); Rosenbaum & Rubin (1983); Roth et al. (2023); Shmueli (2010); Strobl et al. (2007); Suissa (2008); Van Calster et al. (2019); VanderWeele & Ding (2017); Westreich & Cole (2010); Westreich & Greenland (2013); Wolff et al. (2019).
+Abadie, Diamond & Hainmueller (2010, 2015); Angrist, Imbens & Rubin (1996); Austin (2011); Bound, Jaeger & Baker (1995); Bradford Hill (1965); Callaway & Sant'Anna (2021); Cinelli, Forney & Pearl (2022); Cole & Frangakis (2009); Collins et al. (2015); Debray et al. (2015); Fine & Gray (1999); Goodman-Bacon (2021); Grambsch & Therneau (1994); Greenland, Pearl & Robins (1999); Haber et al. (2018); Hernán, Hernández-Díaz & Robins (2004); Hernán, Hsu & Healy (2019); Hernán & Robins (2016, 2020); Imbens & Lemieux (2008); Imbens & Rubin (2015); Lipsitch, Tchetgen Tchetgen & Cohen (2010); McCrary (2008); Munafò et al. (2018); Rosenbaum & Rubin (1983); Roth et al. (2023); Shmueli (2010); Strobl et al. (2007); Suissa (2008); Van Calster et al. (2019); VanderWeele & Ding (2017); Westreich & Cole (2010); Westreich & Greenland (2013); Wolff et al. (2019).
 
 ---
 
@@ -462,7 +464,7 @@ Transformations must be justified by the mean–variance relationship, the scale
 
 - Logs require positive values; zeros need a separate strategy, and `log(y + 1)` changes the estimand and can distort small counts (O'Hara & Kotze, 2010).
 - Box–Cox can help with normality/heteroscedasticity, but the transformed scale must be interpreted back to the original scale (Box & Cox, 1964).
-- Retransformation of log-scale predictions needs a smearing correction or another method; exponentiating a mean on the log scale gives a median, not a mean (Duan, 1983).
+- Retransformation of log-scale predictions needs a smearing correction or another method; exponentiating a mean on the log scale gives a geometric mean — the median only under lognormal or symmetric log-errors — not an arithmetic mean (Duan, 1983).
 - Applying log/sqrt to "all sides" mechanically can create impossible values and makes the model hard to falsify. Justify each transform and report the resulting model in original units where possible.
 
 ### 5.4 Interactions and nonlinear terms
@@ -476,7 +478,7 @@ Transformations must be justified by the mean–variance relationship, the scale
 
 Stepwise selection, best-subset search, and repeated tuning bias coefficients, standard errors, and p-values, and produce overoptimistic performance (Steyerberg et al., 1999; Harrell et al., 1996). Prefer pre-specified models, penalization (ridge/lasso/elastic net), or nested cross-validation. Report the entire selection process and the uncertainty of the final model.
 
-AIC and BIC are model-selection criteria, not tests of causal truth. They require the same response variable and comparable data across models; comparing AIC across different transformations or different subsets is invalid. Adjusted R² and bootstrap optimism are useful for internal validation, but they do not replace external validation (Harrell, 2015).
+AIC and BIC are model-selection criteria, not tests of causal truth. They require the same response variable and comparable data across models; comparing AIC across different transformations or different subsets is invalid unless the likelihood is Jacobian-corrected for the transformation. Adjusted R² and bootstrap optimism are useful for internal validation, but they do not replace external validation (Harrell, 2015).
 
 ### 5.6 Cross-validation
 
@@ -597,8 +599,8 @@ There is no universal minimum n. The relevant question is whether the data can s
 
 | Situation | Common check | Important caveat |
 |---|---|---|
-| **Linear regression, many predictors** | Green's rule: N ≥ 50 + 8m for the overall model; N ≥ 104 + m for individual predictors | a heuristic for medium effects, not a power calculation (Green, 1991) |
-| **Logistic / Cox regression** | events per variable (EPV); 10 EPV is widely cited | EPV problems depend on total n, predictor prevalence, and separation; 10 is not a law (Peduzzi et al., 1996; van Smeden et al., 2016; Vittinghoff & McCulloch, 2007) |
+| **Linear regression, many predictors** | Green's rule: N ≥ 50 + 8m for the overall model; N ≥ 104 + m for individual predictors | a heuristic for medium effects, α = .05 and power = .80, not a power calculation; 50 + 8m is too conservative for m ≥ 7 (Green, 1991) |
+| **Logistic / Cox regression** | events per variable (EPV); 10 EPV is widely cited | the 10-EPV convention comes from Peduzzi et al. (1996); later work finds no firm rationale for 1 variable per 10 events and shows the required EPV depends on total n, predictor prevalence, and separation (van Smeden et al., 2016; Vittinghoff & McCulloch, 2007) |
 | **Prediction model development** | Riley et al. criteria: shrinkage ≥ 0.9, optimism ≤ 0.05 in Nagelkerke R², precise overall risk | requires an anticipated R²/C-statistic and the number of predictor parameters (Riley et al., 2019) |
 | **External validation** | at least 100 events, ideally ≥ 200 events | events, not just participants (Collins, Ogundimu & Altman, 2016) |
 | **Rare events** | number of events per parameter; separation diagnostics | use Firth/penalized likelihood; do not rely on resampling alone (King & Zeng, 2001; Heinze & Schemper, 2002) |
@@ -659,7 +661,7 @@ Button et al. (2013); Collins, Ogundimu & Altman (2016); Gelman & Carlin (2014);
 
 Sources: Rubin (1976); Little & Rubin (2019).
 
-Complete-case analysis is valid in special cases (e.g., MCAR, or MAR when missingness depends only on fully observed covariates included in the model), but it is inefficient and can be biased if the model is misspecified. "We excluded missing cases" is not a justification by itself. Report the amount and pattern of missingness by variable and group, compare completers with non-completers, and state the assumed mechanism.
+Complete-case analysis is valid in special cases (e.g., MCAR, or when missingness is independent of the outcome given the covariates included in the model), but it is inefficient and can be biased if the model is misspecified — in particular, when missingness depends on the outcome, complete-case analysis is biased toward the null. "We excluded missing cases" is not a justification by itself. Report the amount and pattern of missingness by variable and group, compare completers with non-completers, and state the assumed mechanism.
 
 ### 8.2 Multiple imputation checklist
 
@@ -673,9 +675,9 @@ Complete-case analysis is valid in special cases (e.g., MCAR, or MAR when missin
 
 ### 8.3 Measurement error and reliability
 
-- **Classical measurement error in a predictor** attenuates the observed association toward the null (regression dilution). Correct with validation/reliability data, regression calibration, or SIMEX, and report the reliability (Frost & Thompson, 2000).
+- **Classical measurement error in a predictor** attenuates the observed association toward the null (regression dilution); this is exact for a single predictor, while with multiple correlated predictors the bias can go in either direction. Correct with validation/reliability data, regression calibration, or SIMEX (Cook & Stefanski, 1994), and report the reliability (Frost & Thompson, 2000).
 - **Misclassification of a binary outcome** can bias associations; the direction depends on whether the error is differential with respect to exposure. Do not assume it is harmless.
-- **Agreement is not correlation.** Use Bland–Altman limits of agreement for continuous measurements, ICC for reliability, and kappa for categorical agreement; a high correlation can coexist with poor agreement (Bland & Altman, 1999; Shrout & Fleiss, 1979; Sim & Wright, 2005).
+- **Agreement is not correlation.** Use Bland–Altman limits of agreement for continuous measurements, ICC for reliability (not for agreement between two measurement methods), and kappa for categorical agreement; a high correlation can coexist with poor agreement (Bland & Altman, 1999; Shrout & Fleiss, 1979; Sim & Wright, 2005).
 - **Regression to the mean.** Extreme baseline values tend to move toward the mean on remeasurement. Uncontrolled pre–post comparisons overstate change; use a control group or model the phenomenon (Barnett, van der Pols & Dobson, 2005).
 - **Derived variables.** Ratios, change scores, and indices inherit the measurement error of their components; reliability can be much worse than the inputs suggest.
 
@@ -699,7 +701,7 @@ Complete-case analysis is valid in special cases (e.g., MCAR, or MAR when missin
 
 ### 8.6 Sources
 
-Barnett, van der Pols & Dobson (2005); Bland & Altman (1999); Frost & Thompson (2000); Graham, Olchowski & Gilreath (2007); Little & Rubin (2019); National Research Council (2010); Rubin (1976, 1987); Shrout & Fleiss (1979); Sim & Wright (2005); Sterne et al. (2009); White, Royston & Wood (2011).
+Barnett, van der Pols & Dobson (2005); Bland & Altman (1999); Cook & Stefanski (1994); Frost & Thompson (2000); Graham, Olchowski & Gilreath (2007); Little & Rubin (2019); National Research Council (2010); Rubin (1976, 1987); Shrout & Fleiss (1979); Sim & Wright (2005); Sterne et al. (2009); White, Royston & Wood (2011).
 
 ---
 
@@ -760,7 +762,7 @@ Dickey & Fuller (1979); Granger & Newbold (1974); Hyndman & Athanasopoulos (2021
 
 | Study type | Guideline | What it forces the author to report |
 |---|---|---|
-| **Prediction model** | TRIPOD (Collins et al., 2015); TRIPOD+AI for regression or ML (Collins et al., 2024) | source data, predictors, outcome, sample size, missing data, model specification, performance, calibration, validation |
+| **Prediction model** | TRIPOD+AI for regression or ML (Collins et al., 2024), which supersedes TRIPOD 2015 (Collins et al., 2015) | source data, predictors, outcome, sample size, missing data, model specification, performance, calibration, validation |
 | **Observational study** | STROBE (von Elm et al., 2007) | design, setting, participants, variables, bias, sample size, statistical methods, limitations |
 | **Randomized trial** | CONSORT (Schulz, Altman & Moher, 2010) | randomization, blinding, flow, outcomes, analysis populations |
 | **Risk of bias in prediction studies** | PROBAST (Wolff et al., 2019) | participants, predictors, outcome, analysis; risk of bias and applicability |
@@ -782,7 +784,7 @@ Sources: Nosek et al. (2015, 2018); Munafò et al. (2017); Sandve et al. (2013).
 
 ### 10.3 Selective reporting and publication bias
 
-If only significant outcomes or models are reported, the literature overstates effects. Check for outcome switching, unpublished outcomes, and the file-drawer problem (Chan et al., 2004; Rosenthal, 1979; Ioannidis, 2005). A funnel plot or registry comparison can help in a meta-analysis (Egger et al., 1997).
+If only significant outcomes or models are reported, the literature overstates effects. Check for outcome switching, unpublished outcomes, and the file-drawer problem (Chan et al., 2004; Rosenthal, 1979; Ioannidis, 2005). A funnel plot or registry comparison can help in a meta-analysis; funnel asymmetry detects small-study effects generally — publication bias and other biases — not publication bias alone (Egger et al., 1997).
 
 ### 10.4 Red flags
 
@@ -906,6 +908,8 @@ Use this after classifying the claim (§0.1). A "no" is not automatically fatal;
 
 Abadie, A., Diamond, A., & Hainmueller, J. (2010). Synthetic control methods for comparative case studies: Estimating the effect of California's tobacco control program. *Journal of the American Statistical Association, 105*(490), 493–505. https://doi.org/10.1198/jasa.2009.ap08746
 
+Abadie, A., Diamond, A., & Hainmueller, J. (2015). Comparative politics and the synthetic control method. *American Journal of Political Science, 59*(2), 495–510. https://doi.org/10.1111/ajps.12116
+
 Ambroise, C., & McLachlan, G. J. (2002). Selection bias in gene extraction on the basis of microarray gene-expression data. *Proceedings of the National Academy of Sciences, 99*(10), 6562–6566. https://doi.org/10.1073/pnas.102102699
 
 Angrist, J. D., Imbens, G. W., & Rubin, D. B. (1996). Identification of causal effects using instrumental variables. *Journal of the American Statistical Association, 91*(434), 444–455. https://doi.org/10.1080/01621459.1996.10476902
@@ -921,6 +925,10 @@ Barnett, A. G., van der Pols, J. C., & Dobson, A. J. (2005). Regression to the m
 Belsley, D. A., Kuh, E., & Welsch, R. E. (1980). *Regression diagnostics: Identifying influential data and sources of collinearity*. Wiley. https://doi.org/10.1002/0471725153
 
 Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery rate: A practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society: Series B, 57*(1), 289–300. https://doi.org/10.1111/j.2517-6161.1995.tb02031.x
+
+Benjamini, Y., & Yekutieli, D. (2001). The control of the false discovery rate in multiple testing under dependency. *The Annals of Statistics, 29*(4), 1165–1188. https://doi.org/10.1214/aos/1013699998
+
+Bender, R., & Lange, S. (2001). Adjusting for multiple testing—when and how? *Journal of Clinical Epidemiology, 54*(4), 343–349. https://doi.org/10.1016/S0895-4356(00)00314-0
 
 Berk, R., Brown, L., Buja, A., Zhang, K., & Zhao, L. (2013). Valid post-selection inference. *The Annals of Statistics, 41*(2), 802–837. https://doi.org/10.1214/12-AOS1077
 
@@ -965,6 +973,8 @@ Collins, G. S., Moons, K. G. M., Dhiman, P., Riley, R. D., Beam, A. L., Van Cals
 Collins, G. S., Ogundimu, E. O., & Altman, D. G. (2016). Sample size considerations for the external validation of a multivariable prognostic model: A resampling study. *Statistics in Medicine, 35*(2), 214–226. https://doi.org/10.1002/sim.6787
 
 Collins, G. S., Reitsma, J. B., Altman, D. G., & Moons, K. G. M. (2015). Transparent reporting of a multivariable prediction model for individual prognosis or diagnosis (TRIPOD): The TRIPOD statement. *Annals of Internal Medicine, 162*(1), 55–63. https://doi.org/10.7326/M14-0697
+
+Cook, J. R., & Stefanski, L. A. (1994). Simulation-extrapolation estimation in parametric measurement error models. *Journal of the American Statistical Association, 89*(428), 1314–1328. https://doi.org/10.1080/01621459.1994.10476871
 
 Cook, R. D. (1977). Detection of influential observation in linear regression. *Technometrics, 19*(1), 15–18. https://doi.org/10.1080/00401706.1977.10489493
 
@@ -1021,6 +1031,8 @@ Hernán, M. A., & Robins, J. M. (2016). Using big data to emulate a target trial
 Hernán, M. A., & Robins, J. M. (2020). *Causal inference: What if*. Chapman & Hall/CRC. https://miguelhernan.org/whatifbook
 
 Hilbe, J. M. (2011). *Negative binomial regression* (2nd ed.). Cambridge University Press. https://doi.org/10.1017/CBO9780511973420
+
+Holm, S. (1979). A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics, 6*(2), 65–70. https://www.jstor.org/stable/4615733
 
 Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and practice* (3rd ed.). OTexts. https://otexts.com/fpp3/
 

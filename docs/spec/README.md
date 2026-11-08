@@ -65,7 +65,7 @@ artifact.json + preview.md + hypotheses/*.py + predictions/*.csv
 | [`providers.md`](providers.md) | LLM/embedding interfaces, Gemini and Cloudflare adapters, mock mode, privacy, retries |
 | [`api-notes.md`](api-notes.md) | Live-verified endpoints, auth, response shapes, model latency, demo URLs |
 | [`../../GLOSSARY.md`](../../GLOSSARY.md) | Shared language: field, level, field path, factor, hypothesis, critic, artifact |
-| [`../corpus/statistical-pitfalls.md`](../corpus/statistical-pitfalls.md) | The preloaded method-critic corpus (13 chunks, cited) |
+| [`../corpus/statistical-pitfalls.md`](../corpus/statistical-pitfalls.md) | The preloaded method-critic corpus (11 retrievable chunks S0–S10, plus checklist and phrasebook appendices; cited) |
 
 Original research notes live on their branches: `research/free-apis`, `research/llm-providers`, `research/python-stack`, `research/statistical-pitfalls`. They are never merged.
 
