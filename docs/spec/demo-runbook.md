@@ -131,7 +131,7 @@ python -m whack26 run `
 | Failure | Fallback |
 |---|---|
 | DeepSeek unavailable | Set `WHACK26_LLM_PROVIDER=gemini`; `gemini-3.6-flash` is the verified fallback (3.8 times out) |
-| Gemini embeddings unavailable | Set `WHACK26_EMBED_PROVIDER=mock` for plumbing only, or use local `model2vec` once installed |
+| Gemini embeddings unavailable | Set `WHACK26_EMBED_PROVIDER=mock` for plumbing only; the local `model2vec` seam is not implemented yet |
 | No keys at all | `--mock` deterministic fixtures; all pipeline stages still run |
 | OpenAlex 429/403 | Keyless limited mode, exponential backoff, then cache |
 | arXiv slow/timeout | Skip after 2 failures; continue with OpenAlex |
@@ -160,7 +160,7 @@ python -m whack26 run `
 | LLM latency/rate limits | Default to the verified fast model; one retry; cache; mock mode |
 | Thresholds are wrong | All thresholds configurable; eval harness calibrates; defaults are documented |
 | Research quality on general-domain data | Rank by relevance; keep top 20; factors are evidence-linked; critic flags weak traceability |
-| Free-tier privacy | Do not send sensitive data; Cloudflare/local embeddings for private data |
+| Free-tier privacy | Do not send sensitive data; Cloudflare/local embeddings are not implemented yet |
 | Generated code hangs | 60 s timeout, static allowlist, no-network runner |
 | Windows-only sandbox | Document best-effort isolation; do not claim container-grade security |
 | Demo data licence | Use the public source; check the repository licence before redistribution |

@@ -212,12 +212,17 @@ The reviewer normally scores naming as well. If naming is omitted and the automa
 | Runtime | cold classification ≤ 10 min; warm ≤ 5 min |
 | Robustness | 0 crashes; 10/10 produce a path; same seed/model reproduces output |
 
-This is a demo-grade sanity gate, not a benchmark. The harness writes `docs/eval/field-classification-results.md` and exits non-zero if a gate fails.
+This is a demo-grade sanity gate, not a benchmark. The harness writes
+`docs/eval/field-classification-results.md` and exits non-zero if a gate fails.
+The mock plumbing gate passes; the full live ten-dataset run is pending provider
+quota and completed human scores. See
+[`docs/eval/README.md`](../eval/README.md).
 
 ## Module layout
 
 - `whack26/profile.py` — dataset profile and summary.
 - `whack26/embeddings.py` — provider adapter, normalization, cosine.
 - `whack26/classify.py` — algorithm, prompts, validation, refinement.
-- `whack26/store.py` — SQLite field store and membership transactions.
+- `whack26/store.py` — SQLite v4 field/document store and migrations.
+- `whack26/hierarchy/` — placement, branching, promotion, path recomputation.
 - `eval/field_classification.py` — gate runner.

@@ -75,7 +75,7 @@ Returned a 768-element vector (first values `-0.00719808, -0.004311064, -0.03584
 
 ### Free-tier caveat
 
-The Gemini free tier may use prompts and responses to improve Google products, and human reviewers may read them. Do not send sensitive, confidential, or personal data. Use Cloudflare Workers AI or local `model2vec` embeddings for private data.
+The Gemini free tier may use prompts and responses to improve Google products, and human reviewers may read them. Do not send sensitive, confidential, or personal data. Cloudflare Workers AI and local `model2vec` embeddings are documented seams but are not implemented; use `--mock` for plumbing tests with sensitive schemas.
 
 ## DeepSeek (OpenAI-compatible)
 

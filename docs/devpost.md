@@ -4,7 +4,7 @@
 
 **Track:** Brevan Howard — Autonomous Validation Engine · **Event:** WHACK-26
 
-*Alternative names if you prefer: Triage ("your reading queue becomes a validation queue") or Null Hypothesis ("a research engine that tries to reject itself").*
+*Working names considered before we settled on Referee: Triage ("your reading queue becomes a validation queue") and Null Hypothesis ("a research engine that tries to reject itself").*
 
 ---
 

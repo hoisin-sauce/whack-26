@@ -334,8 +334,8 @@ For every affected document:
 - no field is its own ancestor;
 - every field has a unique normalized sibling name.
 
-Run `verify_paths` after every hierarchy operation and expose it as
-`whack26 verify-hierarchy`.
+Run `verify_paths` after every hierarchy operation. A `whack26
+verify-hierarchy` CLI command was proposed but is not implemented.
 
 ### 3.7 Thresholds and configuration
 
@@ -678,8 +678,9 @@ reject a model.
   return-series-only finalist check in the follow-on validation plan; general
   model selection and evaluation use the model-search metrics and diagnostics.
 - Preview renders a "Model search" table with the top candidates and metrics.
-- CLI: `run --model-search` / `--no-model-search`; `model-search --input ...
-  --target ... --out ...` for inspection; `--backend core|sklearn|statsmodels|full`.
+- CLI (implemented): `run --model-search` plus
+  `--backend core|sklearn|statsmodels|full`. A standalone `model-search`
+  inspection command is not implemented.
 
 ### 4.11 Dependencies
 
