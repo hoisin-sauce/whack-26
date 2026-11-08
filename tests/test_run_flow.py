@@ -249,6 +249,7 @@ def test_cli_run_with_scrape_mock(tmp_path: Path, monkeypatch, capsys) -> None:
             "--mock",
             "--offline",
             "--scrape",
+            "--fetch",
             "--out",
             str(run_dir),
         ]
@@ -280,6 +281,7 @@ def test_cli_scrape_command_mock(tmp_path: Path, monkeypatch, capsys) -> None:
             "5",
             "--max-depth",
             "1",
+            "--fetch",
             "--out",
             str(run_dir),
         ]

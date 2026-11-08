@@ -82,6 +82,17 @@ def _bool(env: Mapping[str, str], key: str, default: bool) -> bool:
     raise ValueError(f"{key} must be one of {sorted(_TRUE | _FALSE)}, got {value!r}")
 
 
+def _csv(
+    env: Mapping[str, str], key: str, default: tuple[str, ...] = ()
+) -> tuple[str, ...]:
+    value = _get(env, key)
+    if value is None:
+        return default
+    return tuple(
+        item.strip().lower() for item in value.split(",") if item.strip()
+    )
+
+
 def _choice(env: Mapping[str, str], key: str, default: str, allowed: tuple[str, ...]) -> str:
     value = (_get(env, key, default) or default).lower()
     if value not in allowed:
@@ -148,6 +159,16 @@ class Settings:
     )
     scrape_method_version: str = "1.0.0"
 
+    scrape_fetch_enabled: bool = False
+    scrape_allowed_domains: tuple[str, ...] = ()
+    scrape_blocked_domains: tuple[str, ...] = ()
+    scrape_rate_limit_seconds: float = 1.0
+    scrape_max_bytes: int = 2_000_000
+    scrape_max_text_chars: int = 4_000
+    scrape_fetch_timeout: float = 15.0
+    scrape_max_redirects: int = 3
+    scrape_allow_private_networks: bool = False
+
     def __post_init__(self) -> None:
         if self.llm_provider not in LLM_PROVIDERS:
             raise ValueError(f"llm_provider must be one of {LLM_PROVIDERS}")
@@ -191,6 +212,20 @@ class Settings:
                 raise ValueError(f"{name} must be between 0 and 1")
         if self.scrape_ttl_days <= 0:
             raise ValueError("scrape_ttl_days must be positive")
+        if self.scrape_rate_limit_seconds < 0:
+            raise ValueError("scrape_rate_limit_seconds must be non-negative")
+        if self.scrape_max_bytes <= 0:
+            raise ValueError("scrape_max_bytes must be positive")
+        if self.scrape_max_text_chars <= 0:
+            raise ValueError("scrape_max_text_chars must be positive")
+        if self.scrape_fetch_timeout <= 0:
+            raise ValueError("scrape_fetch_timeout must be positive")
+        if self.scrape_max_redirects < 0:
+            raise ValueError("scrape_max_redirects must be non-negative")
+        for name in ("scrape_allowed_domains", "scrape_blocked_domains"):
+            values = getattr(self, name)
+            if not all(isinstance(item, str) and item for item in values):
+                raise ValueError(f"{name} must contain non-empty strings")
 
     @classmethod
     def from_env(
@@ -269,6 +304,33 @@ class Settings:
                 env, "WHACK26_SCRAPE_METHOD_VERSION", "1.0.0"
             )
             or "1.0.0",
+            scrape_fetch_enabled=_bool(
+                env, "WHACK26_SCRAPE_FETCH_ENABLED", False
+            ),
+            scrape_allowed_domains=_csv(
+                env, "WHACK26_SCRAPE_ALLOWED_DOMAINS"
+            ),
+            scrape_blocked_domains=_csv(
+                env, "WHACK26_SCRAPE_BLOCKED_DOMAINS"
+            ),
+            scrape_rate_limit_seconds=_float(
+                env, "WHACK26_SCRAPE_RATE_LIMIT_SECONDS", 1.0
+            ),
+            scrape_max_bytes=_int(
+                env, "WHACK26_SCRAPE_MAX_BYTES", 2_000_000
+            ),
+            scrape_max_text_chars=_int(
+                env, "WHACK26_SCRAPE_MAX_TEXT_CHARS", 4_000
+            ),
+            scrape_fetch_timeout=_float(
+                env, "WHACK26_SCRAPE_FETCH_TIMEOUT", 15.0
+            ),
+            scrape_max_redirects=_int(
+                env, "WHACK26_SCRAPE_MAX_REDIRECTS", 3
+            ),
+            scrape_allow_private_networks=_bool(
+                env, "WHACK26_SCRAPE_ALLOW_PRIVATE_NETWORKS", False
+            ),
         )
         if settings.top_k <= 0:
             raise ValueError("WHACK26_TOP_K must be positive")

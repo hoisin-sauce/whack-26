@@ -12,6 +12,10 @@ pending provider quota.
 - Document identity/dedup, summaries and embeddings, target-gated frontier,
   field classification, credibility scoring, cached comparisons, document
   method critique, and the statistics/validity preload.
+- A compliant HTTP fetcher (`whack26/research/scrape/fetch.py`) with robots.txt,
+  crawl-delay, per-domain rate limits, redirect re-validation, SSRF/private
+  network blocking, allow/block lists, PDF/binary rejection, size/time caps,
+  ETag/304 caching, and a capped text-excerpt cache.
 - Artifact schema `1.1.0` with the optional
   `research.semantic_scraping` section and a Markdown preview section.
 
@@ -53,6 +57,28 @@ The mock path verifies:
 The mock research cache is empty, so the mock run records a `scrape_no_seeds`
 warning and an empty document list. The module-level tests exercise real
 document graphs with mocked HTTP/LLM/embedding clients.
+
+## Compliance fetcher tests
+
+`tests/test_scrape_fetch.py` runs a real Flask mock server in a background
+thread and covers:
+
+- robots allow/disallow, longest-match and tie-to-allow, `Crawl-delay`,
+  robots 404, robots 5xx, and robots redirects;
+- one robots fetch per origin;
+- public page extraction (title, text, links) and JSON content;
+- PDF and binary rejection;
+- redirect following, redirect-to-disallowed blocking, and redirect limits;
+- private/loopback SSRF blocking and the test-only private-network override;
+- domain allowlist and blocklist enforcement;
+- per-domain rate limiting with an injected clock;
+- response size and timeout caps;
+- cache hits, ETag/304 reuse, user-agent, and 404/429 handling;
+- text-excerpt caps that never store full HTML;
+- the semantic-scraping pipeline using the compliant fetcher end to end.
+
+The suite passes as part of the full test run (`526 passed` at the time of
+writing). The compliance suite has 34 tests.
 
 ## Live smoke plan
 

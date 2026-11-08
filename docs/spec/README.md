@@ -58,6 +58,7 @@ artifact.json + preview.md + hypotheses/*.py + predictions/*.csv
 | [`field-classification.md`](field-classification.md) | Dynamic fields, representation, prompts, thresholds, store schema, invariants, 10-dataset eval gate |
 | [`research-pipeline.md`](research-pipeline.md) | Ingest/profile, dataset summary, queries, source adapters, normalization, dedup, cache, factor mapping, refinement |
 | [`semantic-scraping.md`](semantic-scraping.md) | Follow-on plan for the devplan's document catalog, link expansion, credibility, comparisons, preloaded statistics, and the SQLite v2 schema migration |
+| [`field-branching-and-model-search.md`](field-branching-and-model-search.md) | Implementation plan for dynamic field branching/swapping and automated regression model search, with a parallel build wave and integration wave |
 | [`hypotheses.md`](hypotheses.md) | Python contract, three method families, generation, AST validation, subprocess execution, repair, cheap screen |
 | [`method-critic.md`](method-critic.md) | Critic inputs, corpus retrieval, deterministic checks, rubric, output schema, verdicts, boundary with the validator |
 | [`artifact.md`](artifact.md) | Run directory, JSON schema, stable IDs, Markdown preview, handoff, versioning |

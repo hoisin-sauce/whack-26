@@ -661,8 +661,21 @@ def run_semantic_scraping(
             warnings=warnings,
         )
 
-    fetch_callback = fetch if fetch is not None else _default_fetch
-    _ = client  # reserved for a compliant fetch adapter; never used to crawl here
+    fetcher = None
+    if fetch is not None:
+        fetch_callback = fetch
+    elif settings.scrape_fetch_enabled:
+        from .fetch import Fetcher
+
+        fetcher = Fetcher(
+            settings=settings,
+            store=store,
+            client=client,
+            warnings=warnings,
+        )
+        fetch_callback = fetcher.fetch_document
+    else:
+        fetch_callback = _default_fetch
 
     try:
         frontier_result = expand_frontier(
@@ -687,6 +700,9 @@ def run_semantic_scraping(
                 "warnings": len(_dedupe_warnings(warnings)),
             },
         )
+    finally:
+        if fetcher is not None:
+            fetcher.close()
 
     warnings.extend(frontier_result.warnings)
     documents: list[Document] = []

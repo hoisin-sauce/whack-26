@@ -303,7 +303,34 @@ class _Expansion:
         self, parent: Document, candidates: Iterable[LinkCandidate], depth: int
     ) -> None:
         for candidate in candidates:
-            document = candidate_to_document(candidate)
+            if self.stop:
+                break
+            preliminary = candidate_to_document(candidate)
+            existing, hit = self._find(preliminary)
+            if existing is not None:
+                self._record_duplicate(existing, hit or "url")
+                self._record_link(
+                    parent.id, existing.id, candidate.relation, candidate.url
+                )
+                continue
+            if self.fetch_count >= self.max_fetches:
+                self.warn("scrape_fetch_budget_exhausted")
+                self.stop = True
+                break
+            self.fetch_count += 1
+            document: Document | None = None
+            try:
+                document = self.fetch(candidate.model_copy(deep=True))
+            except Exception as exc:  # noqa: BLE001 - a fetch failure is a warning
+                self.warn(
+                    f"scrape_fetch_failed:{candidate.url}:{type(exc).__name__}"
+                )
+            if document is None:
+                if not (candidate.title or candidate.abstract):
+                    self.warn(f"scrape_fetch_failed:{candidate.url}")
+                    continue
+                document = preliminary
+
             existing, hit = self._find(document)
             if existing is not None:
                 self._record_duplicate(existing, hit or "url")

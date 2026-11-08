@@ -93,9 +93,25 @@ python -m whack26 scrape `
   --max-depth 2 `
   --out runs/scrape-demo
 
+# Enable the compliant HTTP fetcher (robots-aware)
+python -m whack26 scrape `
+  --input data/california_housing.csv `
+  --target median_house_value `
+  --fetch `
+  --out runs/scrape-fetch-demo
+
 # Preload the statistics/validity corpus
 python -m whack26 preload-statistics --limit 100
 ```
+
+The HTTP fetcher is opt-in. When enabled it enforces `robots.txt` and
+`Crawl-delay`, per-domain rate limits, redirect re-validation, SSRF/private
+network blocking, optional domain allow/block lists, PDF/binary rejection,
+size/time caps, and a text-excerpt cache. It never downloads PDFs or stores full
+article text. Configure it with `WHACK26_SCRAPE_FETCH_ENABLED=1`,
+`WHACK26_SCRAPE_ALLOWED_DOMAINS`, `WHACK26_SCRAPE_BLOCKED_DOMAINS`,
+`WHACK26_SCRAPE_RATE_LIMIT_SECONDS`, `WHACK26_SCRAPE_MAX_BYTES`, and
+`WHACK26_SCRAPE_MAX_TEXT_CHARS`.
 
 The SQLite v2 knowledge store lives in `cache/fields.db` and holds `documents`
 (Dataset/Search/Paper/Web), `document_links`, `document_fields`,
@@ -156,7 +172,7 @@ held-out predictions with an R-squared metric.
 
 ## Status
 
-Steps 1-4 are implemented and tested (486 tests). The two-dataset live demo is
+Steps 1-4 are implemented and tested (526 tests). The two-dataset live demo is
 complete. The full ten-dataset live field-classification gate is still pending
 provider quota, and its human-score gates require a completed
 `eval/scores.json` filled in by a human reviewer.

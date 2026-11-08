@@ -128,6 +128,48 @@ def test_invalid_scrape_settings_are_rejected(
         Settings(**kwargs)
 
 
+def test_scrape_fetch_settings_parse_from_env() -> None:
+    settings = Settings.from_env(
+        {
+            "WHACK26_SCRAPE_FETCH_ENABLED": "1",
+            "WHACK26_SCRAPE_ALLOWED_DOMAINS": "example.com, arxiv.org",
+            "WHACK26_SCRAPE_BLOCKED_DOMAINS": "spam.test",
+            "WHACK26_SCRAPE_RATE_LIMIT_SECONDS": "0.5",
+            "WHACK26_SCRAPE_MAX_BYTES": "1000",
+            "WHACK26_SCRAPE_MAX_TEXT_CHARS": "200",
+            "WHACK26_SCRAPE_FETCH_TIMEOUT": "5",
+            "WHACK26_SCRAPE_MAX_REDIRECTS": "1",
+            "WHACK26_SCRAPE_ALLOW_PRIVATE_NETWORKS": "1",
+        }
+    )
+    assert settings.scrape_fetch_enabled is True
+    assert settings.scrape_allowed_domains == ("example.com", "arxiv.org")
+    assert settings.scrape_blocked_domains == ("spam.test",)
+    assert settings.scrape_rate_limit_seconds == pytest.approx(0.5)
+    assert settings.scrape_max_bytes == 1000
+    assert settings.scrape_max_text_chars == 200
+    assert settings.scrape_fetch_timeout == pytest.approx(5.0)
+    assert settings.scrape_max_redirects == 1
+    assert settings.scrape_allow_private_networks is True
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"scrape_rate_limit_seconds": -1}, "scrape_rate_limit_seconds"),
+        ({"scrape_max_bytes": 0}, "scrape_max_bytes"),
+        ({"scrape_max_text_chars": 0}, "scrape_max_text_chars"),
+        ({"scrape_fetch_timeout": 0}, "scrape_fetch_timeout"),
+        ({"scrape_max_redirects": -1}, "scrape_max_redirects"),
+    ],
+)
+def test_invalid_scrape_fetch_settings_are_rejected(
+    kwargs: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        Settings(**kwargs)
+
+
 def test_load_dotenv_does_not_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

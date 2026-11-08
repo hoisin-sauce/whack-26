@@ -95,6 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="enable semantic scraping of research documents",
     )
+    run.add_argument(
+        "--fetch",
+        action="store_true",
+        help="enable the compliant HTTP fetcher for scraping (robots-aware)",
+    )
     run.set_defaults(func=_cmd_run)
 
     scrape = sub.add_parser(
@@ -115,6 +120,11 @@ def build_parser() -> argparse.ArgumentParser:
     scrape.add_argument("--offline", action="store_true")
     scrape.add_argument("--refresh", action="store_true")
     scrape.add_argument("--seed", type=int, default=0)
+    scrape.add_argument(
+        "--fetch",
+        action="store_true",
+        help="enable the compliant HTTP fetcher for scraping (robots-aware)",
+    )
     scrape.add_argument("--max-resources", type=int, default=None)
     scrape.add_argument("--max-depth", type=int, default=None)
     scrape.set_defaults(func=_cmd_scrape)
@@ -315,6 +325,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             offline=args.offline,
             refresh=args.refresh,
             scrape=True if args.scrape else None,
+            scrape_fetch=True if args.fetch else None,
             csv_sep=args.csv_sep,
             out_dir=Path(args.out) if args.out else None,
             store_path=Path(args.db) if args.db else None,
@@ -380,6 +391,7 @@ def _cmd_scrape(args: argparse.Namespace) -> int:
             offline=args.offline,
             refresh=args.refresh,
             scrape=True,
+            scrape_fetch=True if args.fetch else None,
             csv_sep=args.csv_sep,
             out_dir=Path(args.out) if args.out else None,
             store_path=Path(args.db) if args.db else None,

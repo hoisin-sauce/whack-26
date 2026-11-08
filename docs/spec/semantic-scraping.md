@@ -18,6 +18,7 @@ live smoke still depends on provider quota.
 | `summarize.py` | Bounded summary prompt/schema, summary validation, summary embedding |
 | `process.py` | Summarize/embed a document, merge links, set status |
 | `links.py` | Extract and canonicalize references, DOIs, arXiv/OpenAlex IDs, URLs |
+| `fetch.py` | Compliant HTTP fetcher: robots.txt, rate limits, SSRF/PDF/size/time controls, cache |
 | `frontier.py` | Budgeted, target-gated BFS over links/references |
 | `classify.py` | Assign documents into the existing dynamic field tree |
 | `credibility.py` | Deterministic author/venue/source/recency/citation score |
@@ -105,8 +106,11 @@ preload.
   adapter only after a legal review.
 - No hierarchy level-shifting/promotion. Resource assignment reuses the current
   create/assign algorithm; dynamic re-parenting is a separate work package.
-- No autonomous crawling of arbitrary domains. Domains must pass `robots.txt`,
-  a per-domain rate limit, and an allowlist.
+- The HTTP fetcher is opt-in (`WHACK26_SCRAPE_FETCH_ENABLED=1` or `--fetch`). It
+  enforces `robots.txt`, per-domain rate limits, an optional allow/block list,
+  private-network/SSRF blocking, redirect re-validation, PDF/binary rejection,
+  size/time caps, and a text-excerpt cache. Arbitrary crawling remains off by
+  default.
 - No LLM-only credibility. Scores must be decomposable and evidence-backed.
 
 ## 4. Storage decision: stay on SQLite
@@ -657,6 +661,15 @@ Add to `Settings` with the `WHACK26_` prefix:
 | `WHACK26_SCRAPE_CREDIBILITY_THRESHOLD` | `0.50` | Evidence eligibility threshold |
 | `WHACK26_SCRAPE_TTL_DAYS` | `7` | Fetch cache TTL |
 | `WHACK26_SCRAPE_USER_AGENT` | project UA | Crawler user-agent with contact |
+| `WHACK26_SCRAPE_FETCH_ENABLED` | `0` | Enable the compliant HTTP fetcher |
+| `WHACK26_SCRAPE_ALLOWED_DOMAINS` | empty | Comma-separated domain allowlist |
+| `WHACK26_SCRAPE_BLOCKED_DOMAINS` | empty | Comma-separated domain blocklist |
+| `WHACK26_SCRAPE_RATE_LIMIT_SECONDS` | `1.0` | Minimum per-domain request interval |
+| `WHACK26_SCRAPE_MAX_BYTES` | `2000000` | Maximum response body size |
+| `WHACK26_SCRAPE_MAX_TEXT_CHARS` | `4000` | Maximum extracted text excerpt stored |
+| `WHACK26_SCRAPE_FETCH_TIMEOUT` | `15.0` | Per-request timeout in seconds |
+| `WHACK26_SCRAPE_MAX_REDIRECTS` | `3` | Maximum redirect hops |
+| `WHACK26_SCRAPE_ALLOW_PRIVATE_NETWORKS` | `0` | Test-only; allows loopback/private hosts |
 
 ## 16. Testing and acceptance
 
@@ -713,19 +726,35 @@ Add to `Settings` with the `WHACK26_` prefix:
 
 ## 17. Compliance and security
 
-- Respect `robots.txt`, site terms, and `Crawl-delay`; cache the rules.
-- Use official APIs where available; do not scrape a page when the API already
-  provides the metadata.
-- Never fetch PDFs, paywalled pages, login-gated pages, or pages that require
-  cookies.
-- Store summaries, metadata, and links only; no full-text copies. The
-  `document_fetches` cache may hold API metadata or a public abstract, never a
-  PDF or full article body, and it obeys the TTL.
-- Attribute sources and preserve license metadata.
-- Redact secrets/PII before any LLM call; never put API keys in prompts, logs,
-  cache metadata, or the artifact.
-- A domain allowlist and an opt-out list are configuration, not code.
-- General web crawling stays disabled until a legal review signs off.
+The compliant fetcher is implemented in `whack26/research/scrape/fetch.py` and
+is **opt-in** (`WHACK26_SCRAPE_FETCH_ENABLED=1` or `--fetch`). It enforces:
+
+- `robots.txt` for every request, with a per-origin cache and `Crawl-delay`;
+- a per-domain minimum interval (default 1 s) and a fetch budget;
+- manual redirect handling with robots/private-network/allowlist re-checks at
+  every hop;
+- private, loopback, link-local, reserved, and multicast address blocking
+  unless `WHACK26_SCRAPE_ALLOW_PRIVATE_NETWORKS=1` (test-only);
+- an optional domain allowlist and blocklist;
+- rejection of PDFs, binaries, images, archives, and office documents by
+  content type;
+- response size and timeout caps;
+- extraction of only title, meta description, text excerpt, and links; the
+  `document_fetches` cache stores a capped text excerpt, never a PDF or full
+  article body, and obeys the TTL;
+- `ETag`/`Last-Modified` conditional requests and a fresh-cache fast path;
+- a descriptive user-agent with contact information and `DNT: 1`.
+
+The fetcher never downloads PDFs, never uses cookies, never logs in, and never
+stores full article text. General web search remains out of scope; the fetcher
+follows links already present in API metadata or seed documents.
+
+Compliance is tested against a real Flask mock server in
+`tests/test_scrape_fetch.py`: robots allow/disallow/404/5xx/redirect,
+`Crawl-delay`, rate limits, redirects, redirect-to-private blocking, SSRF
+blocking, allow/block lists, PDF/binary rejection, size/time caps, 404/429
+handling, cache hits, ETag/304 reuse, user-agent, one-robots-fetch-per-origin,
+text-excerpt caps, and the pipeline’s use of the compliant fetcher.
 
 ## 18. Phases and effort
 

@@ -118,7 +118,7 @@ def seed_with_links(
     )
 
 
-def test_high_similarity_follows_all_links_without_fetching(store: FieldStore) -> None:
+def test_high_similarity_follows_all_links_with_fetch(store: FieldStore) -> None:
     seed_url = "https://example.com/seed"
     a_url = "https://example.com/a"
     b_url = "https://example.com/b"
@@ -149,7 +149,7 @@ def test_high_similarity_follows_all_links_without_fetching(store: FieldStore) -
         settings=make_settings(),
     )
 
-    assert fetch.calls == []
+    assert fetch.calls == [a_url, b_url]
     assert {document.canonical_url for document in result.documents} == {
         seed_url,
         a_url,
@@ -157,7 +157,7 @@ def test_high_similarity_follows_all_links_without_fetching(store: FieldStore) -
     }
     assert result.stats["documents"] == 3
     assert result.stats["links"] == 2
-    assert result.stats["fetches"] == 0
+    assert result.stats["fetches"] == 2
 
     rows = store.document_links("pap_seed")
     assert len(rows) == 2
@@ -208,12 +208,11 @@ def test_low_similarity_fetches_and_gates_each_link(store: FieldStore) -> None:
         settings=make_settings(),
     )
 
-    assert fetch.calls == [a_url, b_url]
+    assert fetch.calls == [a_url, b_url, a2_url]
     assert {document.canonical_url for document in result.documents} == {
         seed_url,
         a_url,
         b_url,
-        a2_url,
     }
     assert store.find_document_by_url(url_hash(b2_url)) is None
     assert result.stats["skipped_threshold"] == 1
@@ -236,7 +235,7 @@ def test_duplicate_url_is_not_processed_twice(store: FieldStore) -> None:
     process = FakeProcess(
         {s1_url: vec(1.0), s2_url: vec(1.0), a_url: vec(1.0)}
     )
-    fetch = FakeFetch({})
+    fetch = FakeFetch({a_url: make_document("a", a_url)})
 
     result = expand_frontier(
         [s1, s2],
@@ -247,6 +246,7 @@ def test_duplicate_url_is_not_processed_twice(store: FieldStore) -> None:
         settings=make_settings(),
     )
 
+    assert fetch.calls == [a_url]
     assert len(result.documents) == 3
     assert process.calls.count(a_url) == 1
     assert any(
@@ -340,7 +340,10 @@ def test_document_budget_stops_the_run(store: FieldStore) -> None:
     seed = seed_with_links(
         "seed",
         seed_url,
-        links=[{"url": url} for url in link_urls],
+        links=[
+            {"url": url, "title": f"Link {index}"}
+            for index, url in enumerate(link_urls)
+        ],
         embedding=vec(1.0),
     )
     embeddings = {seed_url: vec(1.0)}

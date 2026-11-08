@@ -14,6 +14,7 @@ pyarrow>=17
 
 # Tests
 pytest>=8,<9
+flask>=3.0
 
 # Optional local embedding fallback (no API key)
 # model2vec==0.10.0

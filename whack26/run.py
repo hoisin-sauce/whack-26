@@ -140,6 +140,7 @@ def run_pipeline(
     offline: bool = False,
     refresh: bool = False,
     scrape: bool | None = None,
+    scrape_fetch: bool | None = None,
     csv_sep: str = ",",
     out_dir: Path | None = None,
     store_path: Path | None = None,
@@ -155,6 +156,8 @@ def run_pipeline(
     )
     if scrape is not None:
         settings = settings.with_overrides(scrape_enabled=bool(scrape))
+    if scrape_fetch is not None:
+        settings = settings.with_overrides(scrape_fetch_enabled=bool(scrape_fetch))
     owns_llm = llm is None
     owns_embeddings = embeddings is None
     llm = llm if llm is not None else build_llm_client(settings)

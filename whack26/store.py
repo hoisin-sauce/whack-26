@@ -159,6 +159,10 @@ CREATE TABLE IF NOT EXISTS document_fetches (
   etag TEXT,
   last_modified TEXT,
   body TEXT NOT NULL,
+  title TEXT,
+  content_type TEXT,
+  links_json TEXT NOT NULL DEFAULT '[]',
+  content_sha512 TEXT,
   fetched_at TEXT NOT NULL,
   ttl_seconds INTEGER NOT NULL
 );
@@ -389,6 +393,25 @@ class FieldStore:
         }
         if columns and "cache_key" not in columns:
             conn.execute("ALTER TABLE datasets ADD COLUMN cache_key TEXT")
+            conn.commit()
+        fetch_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(document_fetches)").fetchall()
+        }
+        fetch_additions = {
+            "title": "TEXT",
+            "content_type": "TEXT",
+            "links_json": "TEXT NOT NULL DEFAULT '[]'",
+            "content_sha512": "TEXT",
+        }
+        changed = False
+        for name, definition in fetch_additions.items():
+            if name not in fetch_columns:
+                conn.execute(
+                    f"ALTER TABLE document_fetches ADD COLUMN {name} {definition}"
+                )
+                changed = True
+        if changed:
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -1357,20 +1380,29 @@ class FieldStore:
         etag: str | None = None,
         last_modified: str | None = None,
         ttl_seconds: int = 604800,
+        title: str | None = None,
+        content_type: str | None = None,
+        links: Sequence[str] | None = None,
+        content_sha512: str | None = None,
     ) -> None:
         with self._transaction():
             self._connection().execute(
                 """
                 INSERT INTO document_fetches
-                  (url_hash, url, status, etag, last_modified, body, fetched_at,
+                  (url_hash, url, status, etag, last_modified, body, title,
+                   content_type, links_json, content_sha512, fetched_at,
                    ttl_seconds)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(url_hash) DO UPDATE SET
                   url = excluded.url,
                   status = excluded.status,
                   etag = excluded.etag,
                   last_modified = excluded.last_modified,
                   body = excluded.body,
+                  title = excluded.title,
+                  content_type = excluded.content_type,
+                  links_json = excluded.links_json,
+                  content_sha512 = excluded.content_sha512,
                   fetched_at = excluded.fetched_at,
                   ttl_seconds = excluded.ttl_seconds
                 """,
@@ -1381,6 +1413,10 @@ class FieldStore:
                     etag,
                     last_modified,
                     body,
+                    title,
+                    content_type,
+                    json.dumps(list(links or [])),
+                    content_sha512,
                     utc_now_iso(),
                     int(ttl_seconds),
                 ),
