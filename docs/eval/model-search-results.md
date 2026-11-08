@@ -1,5 +1,10 @@
 # Automated model-search evaluation
 
+> **Historical snapshot.** This report was generated with the deterministic
+> local fallback before the optional backends were installed. The current
+> development environment has `scikit-learn`, `pysindy`, and `statsmodels`
+> available; rerun `eval/model_search.py` to refresh the optional-backend table.
+
 Mode: local
 Folds: 3; seed: 0
 Top-family recovery: **100%**

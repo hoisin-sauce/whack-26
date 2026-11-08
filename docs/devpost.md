@@ -30,15 +30,16 @@ Existing tools either generate more claims (search, LLM assistants) or grade a f
 3. **Extracts only what can be cited.** Factors must carry evidence IDs that resolve to a specific paper or dataset. No evidence, no factor. Surviving factors are mapped to dataset columns.
 4. **Writes runnable hypotheses.** Three Python models, one per method family (linear, group comparison, interaction/derived), AST-validated and executed in an isolated subprocess with repair on failure.
 5. **Audits the derivation.** An agentic method critic checks each model against a versioned statistical-pitfalls corpus — leakage, multiplicity, causal overreach, sample size, missing data, time-series dependence — and cites the chunk behind every finding. It is structurally forbidden from judging performance.
-6. **Runs the gauntlet.** A separate four-layer validator applies the Deflated Sharpe Ratio for multiple-testing, Monte Carlo permutation against luck, chronological out-of-sample decay, and parameter sensitivity.
-7. **Hands off an audit trail.** A versioned `artifact.json`, `preview.md`, and `validation.json`.
+6. **Runs the gauntlet.** A separate four-layer validator applies the Deflated Sharpe Ratio for multiple-testing, Monte Carlo permutation against luck, chronological out-of-sample decay, and parameter sensitivity. General regression, classification, and count targets switch to the appropriate primary metric rather than being forced through the strategy engine.
+7. **Audits the final result.** An advisory final judge combines nine specialist critics, a devil's advocate, deterministic code checks, the statistical reports, and the selected model evidence into a run-level decision — including `insufficient_evidence` when the audit cannot complete.
+8. **Hands off an audit trail.** A versioned `artifact.json`, `preview.md`, `validation.json`, optional model-search/variant/pitfall sidecars, and a UI-ready final-judge fragment.
 
 > **Every claim has an evidence ID. Every model has a code hash. Every verdict has an audit trail.**
 
 ## How we built it
 
 - **Stack:** Python 3.12, pandas/NumPy/SciPy, Pydantic, httpx, SQLite (v4 document catalog), DeepSeek for the LLM and Gemini for embeddings, PyQt6 for the optional dashboard, pytest for the suite.
-- **Three independent layers, by design.** The generator proposes; the method critic audits the derivation; the statistical validator measures the fitted model. The critic cannot grade performance, the validator never sees the generator's reasoning, and deterministic checks (target leakage, preprocessing before split, temporal leakage) run before the LLM and cannot be overridden.
+- **Independent layers, by design.** The generator proposes; the method critic audits the derivation; the statistical validator measures the fitted model; the final judge audits the run-level evidence without re-ranking or overriding either. The critic cannot grade performance, the validator never sees the generator's reasoning, and deterministic checks (target leakage, preprocessing before split, temporal leakage) run before the LLM and cannot be overridden.
 - **Isolation:** AST allowlist plus `python -I` subprocess, network blocked, explicit timeouts. Best-effort, local, trusted-code isolation — documented as such.
 - **Reproducibility:** content-derived IDs, code and data hashes, fixed seeds, cached query sets keyed to the dataset and summary hash.
 - **Coverage:** **949 tests passing** (2 skipped), including seeded leakage cases the critic must catch.

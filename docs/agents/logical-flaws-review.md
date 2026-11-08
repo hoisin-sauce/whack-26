@@ -1,8 +1,9 @@
 # Logical-Flaws Review — Findings for Subagent Work
 
 > **Resolution (2026-11-08):** All findings in this review have been implemented.
-> The validation engine was renamed to `stats_engine.py`; the full suite is now
-> **341 passed**. The fixes cover Work Packages 1–7, including the continuous
+> The validation engine was renamed to `stats_engine.py`; the full suite was
+> green at resolution (see the current suite report for the present count). The
+> fixes cover Work Packages 1–7, including the continuous
 > target contract, real trial Sharpes, finite-value guards, store path
 > invariants, stable classification cache identity, profile/factor role fixes,
 > research cache and ranking fixes, eval-gate alignment, ingestion/config/doctor

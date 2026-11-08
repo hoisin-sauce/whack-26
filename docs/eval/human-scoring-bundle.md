@@ -2,7 +2,7 @@
 
 **Purpose:** give a human scorer everything needed to fill `eval/scores.json`.
 **Date:** 2026-11-08
-**Current commit:** `d74836a` (plus local uncommitted docs)
+**Current commit:** `fd23b27` (plus the current working tree, including this bundle's docs updates)
 **Score file:** `eval/scores.json` (generated template; fill the nulls)
 
 > **Important:** score the **live cold run**, not a mock run. Mock mode exercises plumbing only. Live cold-run paths currently exist for **California Housing** and **Palmer Penguins**; the other eight need a live cold pass. The LLM now defaults to DeepSeek, so the earlier Gemini quota block no longer applies to language calls; embeddings still use Gemini. Do not score mock paths as if they were live results.
