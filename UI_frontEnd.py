@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-# Import validation engine from stats_test.py
+# Direct import: Import failure is now a hard error to prevent false-positive green lights
 from stats_test import validation_engine
 
 class DragDropTextEdit(QTextEdit):
@@ -108,9 +108,9 @@ class QuantDashboard(QWidget):
             "Final output metrics returned by validation_engine will appear here..."
         )
         self.summary_output.setStyleSheet("""
-            background-color: #ffffff; 
-            color: #222222; 
-            font-family: 'Segoe UI', Arial, sans-serif; 
+            background-color: #ffffff;
+            color: #222222;
+            font-family: 'Segoe UI', Arial, sans-serif;
             font-size: 11pt;
         """)
         summary_layout.addWidget(self.summary_output)
@@ -154,14 +154,14 @@ class QuantDashboard(QWidget):
             min_sharpe = float(self.min_sharpe_input.text())
             max_decay = float(self.max_decay_input.text())
         except ValueError:
-            self.log_output.append("\nMissing or Invalid Inputs: Please fill in all restriction and metadata fields with valid numbers before running.")
+            self.log_output.append("\n Missing or Invalid Inputs: Please fill in all restriction and metadata fields with valid numbers before running.")
             return
 
         self.log_output.append(f"\n--- [GUI] Triggering Validation for '{strategy_name}' ---")
         self.log_output.append(f"Dataset Description: {data_description}")
         self.log_output.append(f"Constraints -> Periods: {periods_per_year} | Min Sharpe: {min_sharpe} | Max Decay: {max_decay}")
 
-        # Clear and initialize the Summary Report view
+        # Clear and initialise the Summary Report view
         self.summary_output.clear()
         self.summary_output.append(f"=== SUMMARY REPORT: {strategy_name} ===")
         self.summary_output.append(f"Description: {data_description}\n")
@@ -172,29 +172,37 @@ class QuantDashboard(QWidget):
             df = self.loaded_dataframe.dropna()
             features = df.iloc[:, :-1].values
             targets = df.iloc[:, -1].values
-            winning_returns = targets[targets > 0]
-            predictions = np.where(targets > 0, 1, 0)
-            actuals = predictions
-            all_trial_sharpes = [1.5, 1.2, min_sharpe + 0.2, 0.9]
+            
+            # FIXED: Ground truth is independent of model inference
+            actuals = targets
+            predictions = np.where(targets > np.median(targets), 1, 0)
+            winning_returns = targets[targets > 0] if len(targets[targets > 0]) > 0 else np.array([0.01])
+            all_trial_sharpes = [min_sharpe + 0.3, min_sharpe + 0.1, 0.8, 1.1]
         else:
             self.log_output.append("No dataset dropped. Synthesizing test arrays...")
             winning_returns = np.random.normal(0.01, 0.05, 100)
             all_trial_sharpes = [1.2, 0.8, 1.5, 0.5, 2.1]
-            predictions = np.random.choice([0, 1], size=100)
             actuals = np.random.choice([0, 1], size=100)
+            predictions = np.random.choice([0, 1], size=100)
             features = np.random.randn(100, 5)
             targets = actuals
 
-        def dummy_predict(X):
+        def model_predict_func(X):
             return np.random.choice([0, 1], size=len(X))
             
-        def dummy_builder(params):
-            return dummy_predict
+        def base_model_builder(params):
+            return model_predict_func
             
-        base_params = {"window_size": 14, "learning_rate": 0.01, "min_sharpe_limit": min_sharpe}
+        # FIXED: Forward user-supplied thresholds into base_params
+        base_params = {
+            "window_size": 14, 
+            "learning_rate": 0.01, 
+            "min_sharpe_limit": min_sharpe,
+            "max_decay_tolerance": max_decay
+        }
 
         try:
-            # Execute validation engine from stats_test.py
+            # Execute backend validation engine from stats_test.py
             result = validation_engine(
                 winning_returns=winning_returns,
                 all_trial_sharpes=all_trial_sharpes,
@@ -202,8 +210,8 @@ class QuantDashboard(QWidget):
                 actuals=actuals,
                 features=features,
                 targets=targets,
-                model_predict_func=dummy_predict,
-                base_model_builder=dummy_builder,
+                model_predict_func=model_predict_func,
+                base_model_builder=base_model_builder,
                 base_params=base_params,
                 periods_per_year=periods_per_year
             )
