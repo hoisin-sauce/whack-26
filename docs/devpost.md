@@ -85,7 +85,11 @@ python -m whack26 run `
 python -m whack26 validate-models runs/demo
 python -m whack26 validate-artifact runs/demo/artifact.json
 python -m whack26 preview runs/demo/artifact.json
+python -m whack26 judge runs/demo --mock --offline
 ```
+
+The project is called Referee; the Python package/CLI keeps the repository's
+`whack26` name.
 
 Optional dashboard:
 
