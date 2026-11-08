@@ -57,7 +57,8 @@ input file + optional description
 profile (schema, dtypes, missingness, target/time/roles) --> dataset summary
         |
         v
-classifier  <-->  SQLite v4 field/document store  <-->  DeepSeek LLM + Gemini embeddings
+classifier  <-->  SQLite v4 field/document store  <-->  DeepSeek LLM
+        |                                               + Gemini/local/mock embeddings
         |                                               (general-domain, max depth 4)
         v
 research queries -> OpenAlex / arXiv / HF Hub / Zenodo / Wikipedia
@@ -114,7 +115,7 @@ artifact.json + preview.md + sidecars + hypotheses/*.py + predictions/*.csv
 | [`artifact.md`](artifact.md) | Implemented; schema 1.5.0 | Run directory, JSON schema, stable IDs, Markdown preview, handoff, versioning |
 | [`demo-runbook.md`](demo-runbook.md) | Implemented | California Housing demo, setup, commands, acceptance checks, fallbacks, time budget |
 | [`ui-integration-test-plan.md`](ui-integration-test-plan.md) | Implemented with documented production gaps | Dashboard-to-pipeline handoff, final judge fragment contract, optional-feature test matrix |
-| [`providers.md`](providers.md) | Implemented for DeepSeek/Gemini/mock; fallbacks not implemented | LLM/embedding interfaces, provider selection, mock mode, privacy, retries |
+| [`providers.md`](providers.md) | Implemented for DeepSeek/Gemini/local/mock; Cloudflare not implemented | LLM/embedding interfaces, provider selection, mock mode, privacy, retries |
 | [`api-notes.md`](api-notes.md) | Reference (live-verified notes) | Live-verified endpoints, auth, response shapes, model latency, demo URLs |
 | [`../../GLOSSARY.md`](../../GLOSSARY.md) | Reference | Shared language: field, level, field path, factor, hypothesis, critic, artifact, run |
 | [`../corpus/statistical-pitfalls.md`](../corpus/statistical-pitfalls.md) | Reference | The preloaded method-critic corpus (11 retrievable chunks S0–S10, plus checklist and phrasebook appendices; cited) |
@@ -159,7 +160,7 @@ whack26/
   config.py         # env, thresholds, model names
   common.py ids.py io.py
   profile.py        # DatasetProfile, summary, target/time/role detection
-  embeddings.py     # Gemini embedding adapter, cosine, mock provider
+  embeddings.py     # Gemini/local/mock embedding adapters, cosine
   llm.py            # DeepSeek chat + native Gemini REST clients, JSON schema, retries, mock provider
   classify.py       # field algorithm and refinement
   store.py          # SQLite v4 field/document store and migrations
@@ -203,6 +204,7 @@ runs/               # gitignored
 cache/              # gitignored
 requirements.txt
 requirements-model-search.txt
+requirements-local-embeddings.txt
 requirements-ui.txt
 requirements-ui-test.txt
 .env.example
@@ -229,12 +231,13 @@ This was the original build sequence; every slice is now implemented.
 ## Environment and keys
 
 - **Python 3.12.4** in a `venv` (`py -3.12 -m venv .venv`). Python 3.15 is blocked by `onnxruntime`/`faiss`/`litellm`.
-- **Required:** `DEEPSEEK_API_KEY` (LLM), `GEMINI_API_KEY` (embeddings), `OPENALEX_API_KEY`.
+- **Default required keys:** `DEEPSEEK_API_KEY` (LLM), `GEMINI_API_KEY` (embeddings), `OPENALEX_API_KEY`. Local embeddings or `--mock` can replace Gemini.
 - **Optional:** `HF_TOKEN`, `ZENODO_TOKEN`, `S2_API_KEY`, `DATAGOV_API_KEY`, `KAGGLE_API_TOKEN`, `WEBSEARCH_PROVIDER`/`WEBSEARCH_API_KEY`/`WEBSEARCH_CX`, `WHACK26_RESEARCH_METRICS_ENABLED`.
 - **No general web search key is required.** Wikipedia REST is the default web fallback; the Google/Brave `websearch` adapter registers only when configured. Brave has no free plan.
 - **Model-search backends:** `requirements.txt` includes `scikit-learn` and `pysindy`; `requirements-model-search.txt` adds `statsmodels`. Select the candidate pool with `--backend core|sklearn|statsmodels|full` or `WHACK26_MODEL_SEARCH_BACKEND`.
-- **Defaults:** `DEEPSEEK_MODEL=deepseek-flash`, `GEMINI_MODEL=gemini-3.6-flash`, `GEMINI_EMBED_MODEL=gemini-embedding-2`, `EMBED_DIMS=768`, `WHACK26_LLM_PROVIDER=deepseek`, `WHACK26_EMBED_PROVIDER=gemini`, `WHACK26_OFFLINE=0`.
-- **Not implemented:** `WHACK26_LLM_PROVIDER=cloudflare` and `WHACK26_EMBED_PROVIDER=local` are parsed and validated but raise a clear "not implemented" error.
+- **Defaults:** `DEEPSEEK_MODEL=deepseek-flash`, `GEMINI_MODEL=gemini-3.6-flash`, `GEMINI_EMBED_MODEL=gemini-embedding-2`, `LOCAL_EMBED_MODEL=minishlab/potion-base-8M`, `EMBED_DIMS=768`, `WHACK26_LLM_PROVIDER=deepseek`, `WHACK26_EMBED_PROVIDER=gemini`, `WHACK26_OFFLINE=0`.
+- **Local embeddings:** `WHACK26_EMBED_PROVIDER=local` uses `model2vec` and needs no Gemini quota. Install `requirements-local-embeddings.txt`, set `EMBED_DIMS=256` for the default model, and use a fresh cache/field store.
+- **Not implemented:** `WHACK26_LLM_PROVIDER=cloudflare` is parsed and validated but raises a clear "not implemented" error.
 - **No-key development:** `--mock` uses deterministic fixtures for the LLM and embeddings. The pipeline, artifact, and tests run end to end before real keys are configured.
 - `.env` is gitignored; `.env.example` is the template. Never commit keys.
 
@@ -271,13 +274,15 @@ This was the original build sequence; every slice is now implemented.
 | File | Role in this slice |
 |---|---|
 | `stats_engine.py` | The four-layer validation engine (Deflated Sharpe, Monte Carlo permutation, OOS decay, parameter sensitivity). It is wired in through `whack26/validation/` and remains unmodified. |
-| `UI_frontEnd.py` | Optional PyQt6 tabbed dashboard. It drops a dataset, runs the full pipeline in a background thread, and renders `final_judge.fragment.html`. The legacy `run_validation` path uses `stats_engine` directly for continuous-target demos. |
+| `UI_frontEnd.py` | Optional PyQt6 tabbed dashboard. It drops or browses a dataset, auto-detects or accepts an explicit target, runs the full pipeline in a background thread, and renders `final_judge.fragment.html`. The legacy `run_validation` path uses `stats_engine` directly for continuous-target demos. |
 
 ## Open items
 
 - The full ten-dataset live field-classification gate is pending provider quota and completed human scores.
 - The full 20-resource depth-1 live scrape smoke and the live two-dataset statistical-validation run are pending provider quota.
-- Cloudflare Workers AI and local `model2vec` embeddings are documented seams but are not implemented.
+- The final judge is mock-tested and covered by the UI handoff suite; a live critic run is pending quota.
+- Cloudflare Workers AI is a documented seam but is not implemented.
+- The statistical backend registry exists, but `WHACK26_STATISTICAL_BACKEND`/`WHACK26_EXTERNAL_VALIDATOR` are not consumed by the default run.
 - Catalog queries and the hierarchy placement path for the user-dataset classifier are library-only / not wired.
 - Windows subprocess isolation is best-effort, not container-grade.
 - Research quality on general-domain datasets is the main unknown; the critic flags weak factor traceability.

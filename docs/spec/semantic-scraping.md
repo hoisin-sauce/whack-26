@@ -685,10 +685,12 @@ Add to `Settings` with the `WHACK26_` prefix:
 | `WHACK26_SCRAPE_MAX_DEPTH` | `2` | Maximum link/reference depth |
 | `WHACK26_SCRAPE_MAX_RESOURCES` | `100` | Hard document budget per run |
 | `WHACK26_SCRAPE_MAX_LINKS_PER_RESOURCE` | `25` | Link fan-out cap |
+| `WHACK26_SCRAPE_MAX_FETCHES` | `100` | Hard fetch budget per run |
 | `WHACK26_SCRAPE_SUMMARY_THRESHOLD` | `0.62` | Follow all links above this summary similarity |
 | `WHACK26_SCRAPE_LINK_THRESHOLD` | `0.68` | Follow an individual link above this similarity |
 | `WHACK26_SCRAPE_CREDIBILITY_THRESHOLD` | `0.50` | Evidence eligibility threshold |
 | `WHACK26_SCRAPE_TTL_DAYS` | `7` | Fetch cache TTL |
+| `WHACK26_SCRAPE_METHOD_VERSION` | `1.0.0` | Comparison/method cache version |
 | `WHACK26_SCRAPE_USER_AGENT` | project UA | Crawler user-agent with contact |
 | `WHACK26_SCRAPE_FETCH_ENABLED` | `0` | Enable the compliant HTTP fetcher |
 | `WHACK26_SCRAPE_ALLOWED_DOMAINS` | empty | Comma-separated domain allowlist |
@@ -839,7 +841,7 @@ Build this before the full plan:
 10. Add mocked tests for the graph, dedup, thresholds, cache reuse, and the
     v1→v2 migration.
 
-This proves the schema update, the identity model, the summary/embedding
+This proved the schema update, the identity model, the summary/embedding
 contract, the link frontier, and the comparison cache without web crawling or a
-storage-engine change. Once it is stable, wire the stage into `whack26 run`
-behind `WHACK26_SCRAPE_ENABLED=1`.
+storage-engine change. The stage is now wired into `whack26 run --scrape`
+(`WHACK26_SCRAPE_ENABLED=1` uses the same setting without the flag).

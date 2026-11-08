@@ -1,9 +1,11 @@
-"""Responsiveness, progress, and cancellation placeholders (UI-90 to UI-95).
+"""Responsiveness, progress, and cancellation checks (UI-90 to UI-95).
 
-``DatasetWorkspace.run_validation`` currently executes synchronously on the GUI
-thread and ``QuantDashboard`` has no worker thread, progress stream, busy state,
-or cancel control.  The tests below document the intended behavior and are
-xfailed until that async seam is implemented.  They deliberately fail on an
+``DatasetWorkspace.start_pipeline`` now runs the full pipeline in a background
+``_PipelineTask`` with streamed logs, busy state, and failure handling.  These
+tests target the legacy ``DatasetWorkspace.run_validation`` path, which is still
+synchronous on the GUI thread and has no cancel control.  They document the
+intended behavior for that path and are xfailed until it delegates to the
+pipeline worker or gains its own async seam.  They deliberately fail on an
 assertion rather than skipping so the gap stays visible in the test report.
 """
 
@@ -30,10 +32,11 @@ from ui_fixtures import make_ui_dataset  # noqa: E402
 pytestmark = [pytest.mark.ui, pytest.mark.integration]
 
 ASYNC_XFAIL_REASON = (
-    "UI-90..UI-95 xfail: DatasetWorkspace.run_validation is synchronous on the "
-    "GUI thread and QuantDashboard has no worker thread, streamed progress, "
-    "busy-state handling, or cancel control yet. Re-enable when the async "
-    "validation/pipeline seam lands."
+    "UI-90..UI-95 xfail: the legacy DatasetWorkspace.run_validation path is "
+    "still synchronous on the GUI thread and has no cancel control. "
+    "start_pipeline uses a background _PipelineTask with streamed logs, busy "
+    "state, and failure handling; re-enable these once run_validation delegates "
+    "to that seam."
 )
 
 

@@ -174,7 +174,7 @@ The independent post-generation pass that runs the four-layer engine over a fitt
 _Avoid_: Critic verdict, performance score
 
 **Statistical backend**:
-The engine selected for a validation target: `auto`, `in_slice`, `stats_engine`, `external`, or `none`. `in_slice` is the default for general regression, classification, and count data; `stats_engine` is reserved for continuous, return-like series; `external` delegates to a configured validator. When no backend supports the data the verdict is `insufficient`, not `failed`.
+The engine selected for a validation target: `auto`, `in_slice`, `stats_engine`, `external`, or `none`. `in_slice` is the default for general regression, classification, and count data; `stats_engine` is reserved for continuous, return-like series; `external` delegates to a configured validator. The backend registry exists and is tested, but the current run/validation pipeline uses the target-aware `in_slice`/`stats_engine` path and does not yet consume `WHACK26_STATISTICAL_BACKEND`. When no backend supports the data the verdict is `insufficient`, not `failed`.
 _Avoid_: Validator, engine (unqualified)
 
 **Expected calibration error (ECE)**:

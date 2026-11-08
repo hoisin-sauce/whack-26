@@ -38,7 +38,7 @@ PENGUINS_URL = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="whack26",
-        description="Dynamic research-to-hypothesis pipeline for tabular datasets.",
+        description="Referee: dynamic research-to-hypothesis pipeline for tabular datasets.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)

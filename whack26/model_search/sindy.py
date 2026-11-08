@@ -136,7 +136,7 @@ def fit_sindy(
         "feature_library": library,
         "differentiation_method": ps.FiniteDifference(),
     }
-    # pysindy 2.1 moved feature_names from the constructor to fit(); support
+    # pysindy 2.0 moved feature_names from the constructor to fit(); support
     # both layouts so the optional dependency is not pinned to one release.
     try:
         model = ps.SINDy(**constructor, feature_names=names)

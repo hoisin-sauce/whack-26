@@ -150,3 +150,4 @@ fragment exists.
 - `tests/test_final_judge_report.py` — JSON/Markdown/HTML/fragment rendering.
 - `tests/test_final_judge_pipeline.py` — orchestration and provider failure.
 - `tests/test_final_judge_integration.py` — run/artifact/preview/CLI handoff.
+- `tests/test_ui_pipeline.py` — `run --judge` output loaded by the dashboard, tab isolation, and fragment rendering.

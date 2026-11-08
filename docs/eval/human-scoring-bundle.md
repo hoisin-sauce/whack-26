@@ -2,7 +2,7 @@
 
 **Purpose:** give a human scorer everything needed to fill `eval/scores.json`.
 **Date:** 2026-11-08
-**Current commit:** `fd23b27` (plus the current working tree, including this bundle's docs updates)
+**Current commit:** run `git rev-parse --short HEAD`; the bundle is updated against the current working tree.
 **Score file:** `eval/scores.json` (generated template; fill the nulls)
 
 > **Important:** score the **live cold run**, not a mock run. Mock mode exercises plumbing only. Live cold-run paths currently exist for **California Housing** and **Palmer Penguins**; the other eight need a live cold pass. The LLM now defaults to DeepSeek, so the earlier Gemini quota block no longer applies to language calls; embeddings still use Gemini. Do not score mock paths as if they were live results.
@@ -30,7 +30,11 @@ A dataset passes when **root and full path both score ≥ 3**.
 | Naming (human) | mean ≥ 4.0 |
 | Sibling distinctness | ≥ 8/10 descriptions distinguish the field from siblings |
 
-The harness never invents root, path, or sibling-distinctness scores (`eval/field_classification.py:1054`; `docs/eval/README.md:70`). `naming` is optional: if it is null and the automated naming gate passes, the harness assumes the automated result is correct and uses score 4. Without root, path, and sibling_distinctness for a dataset, its gates stay `pending`.
+The harness never invents root, path, or sibling-distinctness scores
+(`eval/field_classification.py`; `docs/eval/README.md`). `naming` is optional:
+if it is null and the automated naming gate passes, the harness assumes the
+automated result is correct and uses score 4. Without root, path, and
+sibling_distinctness for a dataset, its gates stay `pending`.
 
 ## 3. Reference data for all ten datasets
 

@@ -375,7 +375,9 @@ def run_doctor(settings: Settings, *, network: bool = True) -> list[Check]:
         checks.append(Check(llm_label, "SKIP", "mock/offline or no key"))
 
     embed_label = f"{_provider_label(settings.embed_provider)} embeddings"
-    if settings.embed_provider == "gemini" and settings.embed_api_key and online:
+    if settings.embed_provider == "local":
+        checks.append(_check_embeddings(settings))
+    elif settings.embed_provider == "gemini" and settings.embed_api_key and online:
         checks.append(_check_embeddings(settings))
     else:
         checks.append(Check(embed_label, "SKIP", "mock/offline or no key"))

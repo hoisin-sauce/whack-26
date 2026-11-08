@@ -38,11 +38,11 @@ Existing tools either generate more claims (search, LLM assistants) or grade a f
 
 ## How we built it
 
-- **Stack:** Python 3.12, pandas/NumPy/SciPy, Pydantic, httpx, SQLite (v4 document catalog), DeepSeek for the LLM and Gemini for embeddings, PyQt6 for the optional dashboard, pytest for the suite.
+- **Stack:** Python 3.12, pandas/NumPy/SciPy, Pydantic, httpx, SQLite (v4 document catalog), DeepSeek for the LLM, Gemini or local `model2vec` for embeddings, PyQt6 for the optional dashboard, pytest for the suite.
 - **Independent layers, by design.** The generator proposes; the method critic audits the derivation; the statistical validator measures the fitted model; the final judge audits the run-level evidence without re-ranking or overriding either. The critic cannot grade performance, the validator never sees the generator's reasoning, and deterministic checks (target leakage, preprocessing before split, temporal leakage) run before the LLM and cannot be overridden.
 - **Isolation:** AST allowlist plus `python -I` subprocess, network blocked, explicit timeouts. Best-effort, local, trusted-code isolation — documented as such.
 - **Reproducibility:** content-derived IDs, code and data hashes, fixed seeds, cached query sets keyed to the dataset and summary hash.
-- **Coverage:** **949 tests passing** (2 skipped), including seeded leakage cases the critic must catch.
+- **Coverage:** **1,476 tests passing** with 18 documented `xfail` production gaps, including seeded leakage cases the critic must catch. The latest full run also surfaced one order-dependent UI teardown error; the affected optional-stage file passes in isolation, so rerun the full suite at the submission gate.
 
 ## Challenges we ran into
 
@@ -71,7 +71,7 @@ Generating hypotheses is the easy part. **Earning the right to believe one is th
 
 ## Built with
 
-`python` · `pandas` · `numpy` · `scipy` · `pydantic` · `httpx` · `sqlite` · `deepseek` · `google-gemini` · `openalex` · `arxiv` · `huggingface` · `zenodo` · `wikipedia` · `pyqt6` · `pytest`
+`python` · `pandas` · `numpy` · `scipy` · `pydantic` · `httpx` · `sqlite` · `deepseek` · `google-gemini` · `model2vec` · `openalex` · `arxiv` · `huggingface` · `zenodo` · `wikipedia` · `pyqt6` · `pytest`
 
 ## Try it out
 
@@ -113,8 +113,9 @@ Repository: `https://github.com/hoisin-sauce/whack-26`
 | 1:20 | Three generated hypothesis modules + artifact | "Three runnable models, one code hash each." |
 | 1:40 | **A `refine` or `reject` verdict with a corpus citation** | "The critic's job is to say no." |
 | 2:05 | Four-layer validation report | "DSR · permutation · OOS decay · sensitivity" |
-| 2:30 | `preview.md`: paper → factor → column → code → verdict | "Reading becomes running." |
-| 2:50 | Test suite: 949 passed | "949 tests." |
+| 2:30 | `final_judge.fragment.html`: decision + counts + "not a pass" when evidence is missing | "The verdict is the product." |
+| 2:45 | `preview.md`: paper → factor → column → code → verdict | "Reading becomes running." |
+| 2:50 | Test suite: 1,476 passed | "1,476 tests." |
 
 Record the rejection first. If the live run is quota-blocked, record the mock path and label it — then show the recorded live artifacts as evidence.
 
@@ -132,7 +133,7 @@ Record the rejection first. If the live run is quota-blocked, record the mock pa
 
 ## Internal notes (do not paste into Devpost)
 
-**Claims that are safe:** 949 passed / 2 skipped; two-dataset live smoke; 3/3 hypothesis families; exact prediction reproduction; real OpenAlex citations; four-layer engine implemented and wired; artifact validation passing.
+**Claims that are safe:** 1,476 passed / 18 xfailed; two-dataset live smoke; 3/3 hypothesis families; exact prediction reproduction; real OpenAlex citations; four-layer engine implemented and wired; artifact validation passing; final-judge report files and UI fragment written by `run --judge`. **Pre-submission check:** rerun the full suite and confirm the optional-stage teardown flake; the file passes in isolation.
 
 **Claims to avoid:**
 - "All 12 research sources are live" — Kaggle, Semantic Scholar and web search register only when credentials exist.

@@ -69,6 +69,84 @@ class MockEmbeddingClient:
         return [_hash_vector(text, self.dims) for text in texts]
 
 
+class LocalEmbeddingClient:
+    """Offline static embeddings through ``model2vec``.
+
+    ``model2vec`` is an optional dependency; the model is loaded lazily so a
+    missing package or model produces a clear :class:`EmbeddingError` instead
+    of breaking imports.  The configured ``EMBED_DIMS`` must match the model's
+    native width because the field store persists that width.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: str = "minishlab/potion-base-8M",
+        dims: int = 768,
+    ) -> None:
+        if not model:
+            raise ValueError("a local embedding model name is required")
+        if dims <= 0:
+            raise ValueError("dims must be positive")
+        self.model = model
+        self.dims = dims
+        self._loaded: Any | None = None
+
+    def _load(self) -> Any:
+        if self._loaded is not None:
+            return self._loaded
+        try:
+            import model2vec
+        except ImportError as exc:
+            raise EmbeddingError(
+                "local embeddings require model2vec; install it with "
+                "`pip install -r requirements-local-embeddings.txt`"
+            ) from exc
+        try:
+            loaded = model2vec.StaticModel.from_pretrained(self.model)
+        except Exception as exc:  # noqa: BLE001 - provider/network/model error
+            raise EmbeddingError(
+                f"could not load local embedding model {self.model!r}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        model_dims = int(
+            getattr(loaded, "dim", getattr(loaded, "embedding_dims", 0)) or 0
+        )
+        if model_dims and model_dims != self.dims:
+            raise EmbeddingError(
+                f"EMBED_DIMS={self.dims} does not match {self.model} "
+                f"({model_dims} dims); set EMBED_DIMS={model_dims}"
+            )
+        self._loaded = loaded
+        return loaded
+
+    def embed(
+        self, texts: list[str], *, model: str | None = None
+    ) -> list[list[float]]:
+        if not texts:
+            return []
+        loaded = self._load()
+        try:
+            raw_vectors = loaded.encode(list(texts))
+        except Exception as exc:  # noqa: BLE001 - model/runtime error
+            raise EmbeddingError(
+                f"local embedding failed: {type(exc).__name__}: {exc}"
+            ) from exc
+        vectors: list[list[float]] = []
+        for raw in raw_vectors:
+            values = [float(value) for value in raw]
+            if len(values) != self.dims:
+                raise EmbeddingError(
+                    f"local embedding dimension mismatch: expected "
+                    f"{self.dims}, got {len(values)}"
+                )
+            vectors.append(l2_normalize(values))
+        return vectors
+
+    def close(self) -> None:
+        self._loaded = None
+
+
 class GeminiEmbeddingClient:
     """Native Gemini embeddings with batch splitting and bounded retries."""
 
@@ -246,8 +324,8 @@ def build_embedding_client(settings: Settings) -> EmbeddingClient:
             timeout=settings.embed_timeout,
         )
     if settings.embed_provider == "local":
-        raise EmbeddingError(
-            "local embeddings are configured but model2vec is not installed yet; "
-            "use WHACK26_EMBED_PROVIDER=gemini or mock"
+        return LocalEmbeddingClient(
+            model=settings.local_embed_model,
+            dims=settings.embed_dims,
         )
     raise EmbeddingError(f"unknown embedding provider {settings.embed_provider!r}")

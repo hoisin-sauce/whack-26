@@ -65,18 +65,22 @@ py -3.12 -m venv .venv
 python -m pip install -r requirements.txt
 # Optional: add statsmodels for the full model-search stack
 # python -m pip install -r requirements-model-search.txt
+# Optional: offline embeddings via model2vec (set EMBED_DIMS=256)
+# python -m pip install -r requirements-local-embeddings.txt
 Copy-Item .env.example .env
 # Fill DEEPSEEK_API_KEY, GEMINI_API_KEY, and OPENALEX_API_KEY in .env
 python -m whack26 doctor
 ```
 
-`.env` is gitignored. Never commit it. The required keys are
+`.env` is gitignored. Never commit it. The default required keys are
 `DEEPSEEK_API_KEY` (LLM), `GEMINI_API_KEY` (embeddings), and
 `OPENALEX_API_KEY`; `HF_TOKEN`, `ZENODO_TOKEN`, and the optional source/search
-keys are optional. DeepSeek has no embeddings API, so Gemini remains the
-embedding provider. Wikipedia REST is the default web fallback; the optional
-Google/Brave web-search adapter registers only when configured. Batched OpenAlex
-author-metric enrichment is opt-in with `WHACK26_RESEARCH_METRICS_ENABLED=1`.
+keys are optional. DeepSeek has no embeddings API; Gemini is the default
+embedding provider, and local `model2vec` embeddings are an optional
+no-quota fallback (`requirements-local-embeddings.txt`, `EMBED_DIMS=256`).
+Wikipedia REST is the default web fallback; the optional Google/Brave
+web-search adapter registers only when configured. Batched OpenAlex author-metric
+enrichment is opt-in with `WHACK26_RESEARCH_METRICS_ENABLED=1`.
 
 ## Quickstart
 
@@ -410,12 +414,15 @@ equivalent manual commands are:
 .\.venv\Scripts\python.exe UI_frontEnd.py
 ```
 
-The dashboard is tabbed. Dropping a `.csv`/`.xls`/`.xlsx` file auto-starts the
-full pipeline in a background thread (model search, statistical validation, and
-final judge enabled) and renders `final_judge.fragment.html` in that tab's
-summary panel. Each tab keeps its own run, report, and log. The legacy
+The dashboard is tabbed. Drop a `.csv`/`.xls`/`.xlsx` file, click the drop zone,
+or use **Choose dataset...**; the file loads, the **Target Column** selector
+populates (default **Auto-detect**, with an explicit override), and the full
+pipeline starts in a background thread (model search, statistical validation,
+and final judge enabled). The tab renders `final_judge.fragment.html` in its
+summary panel and keeps its own run, report, and log. The legacy
 `DatasetWorkspace.run_validation` path still runs `stats_engine` directly for
-the original continuous-target demo, but it is not the main handoff.
+the original continuous-target demo (last column as target, 30+ rows), but it is
+not the main handoff.
 
 The UI test suite is described in
 [`docs/spec/ui-integration-test-plan.md`](docs/spec/ui-integration-test-plan.md).
@@ -460,7 +467,7 @@ predictions exactly.
 - [`docs/spec/agentic-hypotheses-validation-and-sources.md`](docs/spec/agentic-hypotheses-validation-and-sources.md): variants, research models, agent loop, collection metadata, sources
 - [`docs/spec/field-pitfalls.md`](docs/spec/field-pitfalls.md): field-scoped pitfall queries, applicability, citations, settings
 - [`docs/spec/final-judge.md`](docs/spec/final-judge.md): advisory final model audit, decision rules, report formats, UI handoff
-- [`docs/spec/providers.md`](docs/spec/providers.md): LLM/embedding interfaces, DeepSeek, Gemini, mock mode
+- [`docs/spec/providers.md`](docs/spec/providers.md): LLM/embedding interfaces, DeepSeek, Gemini, local embeddings, mock mode
 - [`docs/spec/api-notes.md`](docs/spec/api-notes.md): live-verified endpoints, auth, response shapes, limits
 - [`docs/spec/demo-runbook.md`](docs/spec/demo-runbook.md): demo dataset, commands, fallbacks, time budget
 - [`docs/spec/ui-integration-test-plan.md`](docs/spec/ui-integration-test-plan.md): dashboard-to-pipeline handoff and optional-feature test matrix
@@ -473,7 +480,11 @@ predictions exactly.
 The core pipeline, semantic scraping, statistical validation, model search,
 variants, generation validation, field-scoped pitfalls, the hierarchy package,
 the final judge, and the optional PyQt6 dashboard are implemented and tested.
-The default suite is green. Scraped documents use hierarchy placement by
+The latest full suite reported **1,476 passed and 18 documented xfails**, plus
+one order-dependent teardown error in the optional-stage UI file (the file
+passes in isolation; see
+[`docs/spec/ui-integration-test-plan.md`](docs/spec/ui-integration-test-plan.md)).
+Scraped documents use hierarchy placement by
 default; `--variants` evaluates every generated hypothesis on the original,
 anonymized, and jumbled frames; `run --judge` writes all four judge reports and
 embeds the advisory decision in the artifact.

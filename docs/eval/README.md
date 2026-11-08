@@ -94,7 +94,8 @@ reproduce exactly from the saved code. California returned one `refine` and two
 The document catalog, SQLite v4 migration, frontier, credibility, comparisons,
 document critic, and preload are recorded in
 [`semantic-scraping-smoke.md`](semantic-scraping-smoke.md). The mock end-to-end
-path is validated; the live OpenAlex-reference smoke is pending provider quota.
+path and a 5-document live smoke are validated; the full 20-resource
+OpenAlex-reference smoke is pending provider quota.
 
 ## Statistical-validation smoke
 
@@ -146,7 +147,9 @@ against a fresh store and therefore spends calls.
 
 A full live ten-dataset run has not been recorded yet. The default LLM is now
 DeepSeek (`WHACK26_LLM_PROVIDER=deepseek`), so the Gemini quota note below
-applies only when Gemini is selected. On 2026-11-07 the
+applies only when Gemini is selected; local `model2vec` embeddings
+(`WHACK26_EMBED_PROVIDER=local`, `EMBED_DIMS=256`) avoid the embedding quota
+entirely. On 2026-11-07 the
 configured Gemini key reported a free-tier daily limit for `gemini-3.6-flash`
 (`generate_content_free_tier_requests`). The exact per-model limit is
 account-specific and should be checked in AI Studio. A cold classification needs

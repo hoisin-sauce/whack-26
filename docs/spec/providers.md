@@ -1,6 +1,8 @@
 # Provider seams: LLM, embeddings, and mock mode
 
-Status: build detail derived from the provider research and the live probes in `api-notes.md`.
+Status: implemented for DeepSeek, Gemini, local `model2vec` embeddings, and
+mock mode. The Cloudflare Workers AI seam is documented but not implemented.
+Live probes are in [`api-notes.md`](api-notes.md).
 
 ## Interfaces
 
@@ -33,7 +35,7 @@ Both return validated Python objects, not raw provider responses. The caller nev
 - Every deterministic call sets `temperature=0`, `thinking={"type": "disabled"}`, and `response_format={"type": "json_object"}`.
 - DeepSeek's JSON mode guarantees valid JSON but not a specific shape. The requested JSON Schema is appended to the system message, and callers still validate with Pydantic and retry on schema failure.
 - Timeout: 60 s per LLM call. Retries: 2 on 429/5xx/timeout with 1 s and 4 s backoff.
-- DeepSeek exposes no embeddings endpoint (`POST /embeddings` returns 404), so embeddings stay on Gemini.
+- DeepSeek exposes no embeddings endpoint (`POST /embeddings` returns 404), so embeddings use Gemini or local `model2vec`.
 
 ## Gemini implementation (embeddings; optional LLM)
 
@@ -58,13 +60,19 @@ would use the OpenAI-compatible base
 `@cf/openai/gpt-oss-120b` for the LLM. Treat it as an unimplemented fallback,
 not a supported provider.
 
-## Local embeddings (documented seam, not implemented)
+## Local embeddings (`model2vec`)
 
-`WHACK26_EMBED_PROVIDER=local` is parsed and validated but
-`build_embedding_client` raises a clear "not implemented" error until
-`model2vec` (`potion-base-8M`, 256 dims, no key) is installed and wired. If it
-lands, `EMBED_DIMS=256` and the field store must not mix embedding providers;
-the store is dimension-sensitive and should fail fast on a mismatch.
+`WHACK26_EMBED_PROVIDER=local` uses `model2vec` static embeddings and needs no
+API key or Gemini quota. Install the optional dependency with
+`pip install -r requirements-local-embeddings.txt`.
+
+- Default model: `minishlab/potion-base-8M` (`LOCAL_EMBED_MODEL` overrides it).
+- The default model is **256 dimensions**. Set `EMBED_DIMS=256`; the client
+  fails fast on a mismatch rather than silently padding or truncating.
+- Use a fresh cache/field store when switching from Gemini's 768-dimension
+  vectors. The store is dimension-sensitive and must not mix providers.
+- The model is loaded lazily; a missing package or model produces a clear
+  `EmbeddingError` instead of breaking imports.
 
 ## Mock mode
 
@@ -85,11 +93,12 @@ the store is dimension-sensitive and should fail fast on a mismatch.
 | Env var | Values | Default |
 |---|---|---|
 | `WHACK26_LLM_PROVIDER` | `deepseek`, `gemini`, `mock` (Cloudflare parsed but not implemented) | `deepseek` |
-| `WHACK26_EMBED_PROVIDER` | `gemini`, `mock` (local parsed but not implemented) | `gemini` |
+| `WHACK26_EMBED_PROVIDER` | `gemini`, `local`, `mock` | `gemini` |
 | `DEEPSEEK_MODEL` | model id | `deepseek-flash` |
 | `GEMINI_MODEL` | model id | `gemini-3.6-flash` |
 | `GEMINI_EMBED_MODEL` | model id | `gemini-embedding-2` |
-| `EMBED_DIMS` | int | `768` |
+| `LOCAL_EMBED_MODEL` | model2vec model id | `minishlab/potion-base-8M` |
+| `EMBED_DIMS` | int | `768` (use `256` for the default local model) |
 | `WHACK26_OFFLINE` | `0`, `1` | `0` |
 | `WHACK26_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING` | `INFO` |
 

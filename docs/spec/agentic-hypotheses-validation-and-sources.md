@@ -1,9 +1,11 @@
 # Agentic hypotheses, validation, and source/search breadth
 
 Status: **implemented in part** — model search, variants, research-to-model
-extraction, the agent loop, collection metadata, generation validation, and the
-statistical backends are wired behind opt-in settings and render into the
-artifact; `--full` enables the matching stages together. Variants are evaluated
+extraction, the agent loop, collection metadata, and generation validation are
+wired behind opt-in settings and render into the artifact; `--full` enables the
+matching stages together. The statistical backend registry is implemented and
+tested, but the default run still uses the target-aware validation path rather
+than consuming `WHACK26_STATISTICAL_BACKEND`. Variants are evaluated
 per hypothesis, Search documents are emitted, scraped documents use hierarchy
 placement, and the `kaggle`/`semantic_scholar`/`websearch` adapters register when
 configured. Catalog queries remain library-only. The existing
@@ -440,7 +442,7 @@ deterministic checks override the LLM.
 
 ### 4.3 In-slice statistical validation and backend selection
 
-New modules: `whack26/validation/statistical.py`, `engine_adapter.py`, and
+New modules: `whack26/validation/statistical.py`, `engine_bridge.py`, and
 `backends.py`.
 
 ```python
@@ -468,6 +470,11 @@ Selection is configured with:
 |---|---|---|
 | `WHACK26_STATISTICAL_BACKEND` | `auto`, `in_slice`, `stats_engine`, `external`, `none` | `auto` |
 | `WHACK26_EXTERNAL_VALIDATOR` | entry point or module path | unset |
+
+> **Current wiring:** the registry, external seam, and tests exist, but
+> `run --validate` and `validate-models` still call the target-aware
+> `whack26/validation/pipeline.py` path directly. The settings are parsed and
+> validated but not consumed by the default run.
 
 `auto` rules:
 
@@ -639,7 +646,7 @@ Add these sources, subject to a capability check:
 | DataCite | DataCite REST | none | DOI/dataset metadata adapter |
 | Semantic Scholar | Graph API | optional `S2_API_KEY` | Paper adapter; rate-limit aware |
 | Google Dataset Search | no public API | — | Drop or document a fallback |
-| General web search | provider TBD | key | `WebSearchAdapter` in §5.2 |
+| General web search | Google Programmable Search or Brave | key + (Google) engine id | `WebSearchAdapter`; registers only when configured |
 
 Each adapter:
 

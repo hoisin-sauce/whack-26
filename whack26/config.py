@@ -121,6 +121,7 @@ class Settings:
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.6-flash"
     gemini_embed_model: str = "gemini-embedding-2"
+    local_embed_model: str = "minishlab/potion-base-8M"
     embed_dims: int = 768
 
     openalex_api_key: str | None = None
@@ -384,6 +385,10 @@ class Settings:
             gemini_model=_get(env, "GEMINI_MODEL", "gemini-3.6-flash") or "gemini-3.6-flash",
             gemini_embed_model=_get(env, "GEMINI_EMBED_MODEL", "gemini-embedding-2")
             or "gemini-embedding-2",
+            local_embed_model=_get(
+                env, "LOCAL_EMBED_MODEL", "minishlab/potion-base-8M"
+            )
+            or "minishlab/potion-base-8M",
             embed_dims=_int(env, "EMBED_DIMS", 768),
             openalex_api_key=_get(env, "OPENALEX_API_KEY"),
             research_metrics_enabled=_bool(

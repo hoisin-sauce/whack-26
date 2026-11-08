@@ -332,9 +332,9 @@ remain valid without them:
 ```
 
 The corresponding sidecar files (`model_search.json`, `variants.json`,
-`generation_validation.json`, `research_models.json`, `field_pitfalls.json`)
-are written next to `artifact.json` even when a consumer only reads the
-artifact.
+`generation_validation.json`, `research_models.json`, `field_pitfalls.json`,
+and the `final_judge.json/.md/.html/.fragment.html` set) are written next to
+`artifact.json` even when a consumer only reads the artifact.
 
 ## Stable IDs
 

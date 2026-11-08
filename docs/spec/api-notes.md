@@ -75,7 +75,7 @@ Returned a 768-element vector (first values `-0.00719808, -0.004311064, -0.03584
 
 ### Free-tier caveat
 
-The Gemini free tier may use prompts and responses to improve Google products, and human reviewers may read them. Do not send sensitive, confidential, or personal data. Cloudflare Workers AI and local `model2vec` embeddings are documented seams but are not implemented; use `--mock` for plumbing tests with sensitive schemas.
+The Gemini free tier may use prompts and responses to improve Google products, and human reviewers may read them. Do not send sensitive, confidential, or personal data. Use local `model2vec` embeddings (`WHACK26_EMBED_PROVIDER=local`, `requirements-local-embeddings.txt`, `EMBED_DIMS=256`) for private data; Cloudflare Workers AI is still an unimplemented seam.
 
 ## DeepSeek (OpenAI-compatible)
 
@@ -197,7 +197,7 @@ failure.
 | `gemini-3.8-flash` with `thinkingBudget=0` | 120 s timeout | Keep it opt-in only |
 | Google Dataset Search | No public query API | Dropped |
 | Keyless Semantic Scholar | 429 | Optional, key-gated |
-| Keyless general web search | No lawful free API without a key | Wikipedia is the labeled encyclopedic fallback; general web search is out of scope |
+| Keyless general web search | No lawful free API without a key | Wikipedia is the labeled encyclopedic fallback; Google/Brave web search is optional and key-gated |
 | Brave Search API free tier | No free plan as of 2026-11; $5 monthly credit, then usage-based pricing | Removed; no Brave key is required |
 
 ## Operational defaults
