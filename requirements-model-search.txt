@@ -1,0 +1,10 @@
+# Optional model-search extras.
+#
+# `requirements.txt` already installs scikit-learn and pysindy, so this file
+# only adds the remaining optional backend. Use it when you want the full
+# model-search stack:
+#
+#   pip install -r requirements-model-search.txt
+#
+-r requirements.txt
+statsmodels>=0.14,<1

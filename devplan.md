@@ -1,4 +1,10 @@
-# Development plan
+# Original development plan (historical)
+
+> **Historical note.** This is the original hackathon brief, kept for context.
+> It describes the intended system, not the implemented one. For the current
+> state and commands, use [`README.md`](README.md) and
+> [`docs/spec/README.md`](docs/spec/README.md). The plan below names Postgres /
+> pgvector and some source adapters that were not adopted.
 
 Setup postgres pgvector database
 
@@ -14,7 +20,7 @@ Do a vector lookup on the database on the field or any papers that might be rela
 
 Fields are organised as so, there is a set of top level fields, i.e. finance, sport, shipping. We compare the semantic similarity with RAG which we can then use to do further search
 
-Once we have the closest top-level fields, we do a search on level 2 fields to try and find the closest second-level fields related to those top-level fields and repeat until we are at a deeper level. When we have reached the final level we need a judgement call to tell if something is more specific or less specific and we swap orders in the tree with the current category until the closest layers are ordered according to generality. If an object is classed as under a field and that field increases in level then all objects under its classification should also have their classification increase accordingly so that the hierarchy still stands as so. We only create a category if it is part of a category that is not mentioned -- rephrase
+Once we have the closest top-level fields, we do a search on level 2 fields to try and find the closest second-level fields related to those top-level fields and repeat until we are at a deeper level. When we have reached the final level we need a judgement call to tell if something is more specific or less specific and we swap orders in the tree with the current category until the closest layers are ordered according to generality. If an object is classed as under a field and that field increases in level then all objects under its classification should also have their classification increase accordingly so that the hierarchy still stands as so. We only create a category if it is part of a category that is not mentioned
 
 Once we have identified the classifications that this dataset that we are provided with falls under, we will attempt to research about the field and related areas
 
@@ -25,6 +31,24 @@ For papers regarding the subject, we use a free api for Semantic Scholar, OpenAl
 We additionally use a free web api to find the base 20-50? search results
 
 From there we use our semantic scraping methodology for the papers (by references) and for the web results (by links)
+
+### Database structure
+
+The database contains information at base to do with three types of document
+Dataset
+Search
+Paper
+
+Datasets can be linked to searches or papers
+Searches are linked to other searches with a to and from link
+Papers are link to other papers with a to and from reference
+
+All three will have a summary column which should be searchable by a vector encoding
+
+There will be a table called field, which contains a broad vector encoding of a field e.g. statistics, the level e.g. 1 for a top level idea, 2 for a sub field of that etc.
+When a resource is added to the database, we consider the closes field that there is to the resource, if the distance between the embeddings is greater than a given bound (based on the level of the field) then we attempt to assign it to the parent of that field and so on. If a field is far enough from a parent to not be considered in its direct field but close enough to be related then we create a new subfield. When we create a new subfield, we assess (via an agent) if the subfield is in face actually the parent of the currently being considered parent, if so we move the parent and all its subfield down a level and place the parent of the current parent as the new field. Then for all resources in fields that were moved, if they are closer to the new field than the current parent, we assign them to the new field rather than the parent.
+
+This should give a special hierarchy of knowledge for us to use to access information for validation.
 
 ### Semantic scraping methodology
 
@@ -54,6 +78,8 @@ We preload the dataset with a large amount of layer 1 data under the category of
 All hypotheses should be returned in the end in the form of a python function and a labelled method of determining which columns it applies to in the dataset.
 
 ### agentic
+
+We will consider all information in parent fields to the data sources field as well as all information stored under statistics
 
 For this we work with two versions of the dataset, one where the data is anonymized and one where it is not and one where the labels are jumbled around.
 If the agent working with labels that are jumbled around ever unscrambles the labels correctly, we ignore its results.

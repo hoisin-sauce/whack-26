@@ -1,0 +1,2574 @@
+{
+  "$defs": {
+    "ClassificationSection": {
+      "properties": {
+        "path": {
+          "items": {
+            "$ref": "#/$defs/FieldSection"
+          },
+          "title": "Path",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "created_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Created Fields",
+          "type": "array"
+        },
+        "refined_after_research": {
+          "default": false,
+          "title": "Refined After Research",
+          "type": "boolean"
+        },
+        "refinement_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refinement Reason"
+        }
+      },
+      "title": "ClassificationSection",
+      "type": "object"
+    },
+    "CorrelationSection": {
+      "properties": {
+        "a": {
+          "title": "A",
+          "type": "string"
+        },
+        "b": {
+          "title": "B",
+          "type": "string"
+        },
+        "pearson": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pearson"
+        },
+        "spearman": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spearman"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "title": "CorrelationSection",
+      "type": "object"
+    },
+    "CriticCheckSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "severity": {
+          "default": "none",
+          "title": "Severity",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Citations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "status"
+      ],
+      "title": "CriticCheckSection",
+      "type": "object"
+    },
+    "CriticIssueSection": {
+      "properties": {
+        "chunk": {
+          "title": "Chunk",
+          "type": "string"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "finding": {
+          "title": "Finding",
+          "type": "string"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        },
+        "fix": {
+          "default": "",
+          "title": "Fix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chunk",
+        "severity",
+        "finding"
+      ],
+      "title": "CriticIssueSection",
+      "type": "object"
+    },
+    "CriticSection": {
+      "properties": {
+        "claim_type": {
+          "title": "Claim Type",
+          "type": "string"
+        },
+        "verdict": {
+          "title": "Verdict",
+          "type": "string"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/CriticIssueSection"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "missing_information": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Information",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/CriticCheckSection"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "retrieved_chunks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Retrieved Chunks",
+          "type": "array"
+        },
+        "model": {
+          "default": "unknown",
+          "title": "Model",
+          "type": "string"
+        },
+        "corpus_version": {
+          "default": "unknown",
+          "title": "Corpus Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_type",
+        "verdict"
+      ],
+      "title": "CriticSection",
+      "type": "object"
+    },
+    "CriticSummary": {
+      "properties": {
+        "verdicts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Verdicts",
+          "type": "object"
+        },
+        "degraded": {
+          "default": false,
+          "title": "Degraded",
+          "type": "boolean"
+        }
+      },
+      "title": "CriticSummary",
+      "type": "object"
+    },
+    "DatasetColumn": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "dtype": {
+          "title": "Dtype",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "missing_pct": {
+          "title": "Missing Pct",
+          "type": "number"
+        },
+        "cardinality": {
+          "title": "Cardinality",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "dtype",
+        "role",
+        "missing_pct",
+        "cardinality"
+      ],
+      "title": "DatasetColumn",
+      "type": "object"
+    },
+    "DatasetSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "stored_path": {
+          "default": "dataset.csv",
+          "title": "Stored Path",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "rows": {
+          "title": "Rows",
+          "type": "integer"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "source_site": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Site"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TargetSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "time_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Column"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/DatasetColumn"
+          },
+          "title": "Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source_path",
+        "sha256",
+        "format",
+        "rows"
+      ],
+      "title": "DatasetSection",
+      "type": "object"
+    },
+    "ExecutionSection": {
+      "properties": {
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "runtime_ms": {
+          "default": 0,
+          "title": "Runtime Ms",
+          "type": "integer"
+        },
+        "n_predictions": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Predictions"
+        },
+        "predictions_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predictions Path"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "ExecutionSection",
+      "type": "object"
+    },
+    "FactorMapping": {
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "in_dataset": {
+          "default": false,
+          "title": "In Dataset",
+          "type": "boolean"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "title": "FactorMapping",
+      "type": "object"
+    },
+    "FactorSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "claim_type": {
+          "title": "Claim Type",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "mapping": {
+          "$ref": "#/$defs/FactorMapping"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "direction",
+        "claim_type"
+      ],
+      "title": "FactorSection",
+      "type": "object"
+    },
+    "FieldPitfall": {
+      "description": "One cited, field-scoped caveat.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Id"
+        },
+        "field_name": {
+          "title": "Field Name",
+          "type": "string"
+        },
+        "field_level": {
+          "default": 1,
+          "title": "Field Level",
+          "type": "integer"
+        },
+        "scope": {
+          "default": "ancestor",
+          "enum": [
+            "leaf",
+            "ancestor"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "pitfall": {
+          "title": "Pitfall",
+          "type": "string"
+        },
+        "category": {
+          "default": "other",
+          "enum": [
+            "censoring",
+            "selection",
+            "aggregation",
+            "measurement_error",
+            "missing_data",
+            "spatial_dependence",
+            "temporal_dependence",
+            "confounding",
+            "multiplicity",
+            "rare_group",
+            "other"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "applies_to_dataset": {
+          "default": "unknown",
+          "enum": [
+            "yes",
+            "unknown",
+            "no"
+          ],
+          "title": "Applies To Dataset",
+          "type": "string"
+        },
+        "applicability_reason": {
+          "default": "",
+          "title": "Applicability Reason",
+          "type": "string"
+        },
+        "check": {
+          "default": "",
+          "title": "Check",
+          "type": "string"
+        },
+        "evidence_id": {
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "title": "Source",
+          "type": "string"
+        },
+        "url": {
+          "default": "",
+          "title": "Url",
+          "type": "string"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        },
+        "relevance": {
+          "default": 0.0,
+          "title": "Relevance",
+          "type": "number"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "field_name",
+        "title",
+        "pitfall",
+        "evidence_id"
+      ],
+      "title": "FieldPitfall",
+      "type": "object"
+    },
+    "FieldPitfallQuery": {
+      "description": "One field-scoped search query and the field it belongs to.",
+      "properties": {
+        "field_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field Id"
+        },
+        "field_name": {
+          "title": "Field Name",
+          "type": "string"
+        },
+        "field_level": {
+          "title": "Field Level",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field_name",
+        "field_level",
+        "source",
+        "query"
+      ],
+      "title": "FieldPitfallQuery",
+      "type": "object"
+    },
+    "FieldPitfallReport": {
+      "description": "Serializable result of the field-pitfall stage.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "default": "",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "field_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Field Path",
+          "type": "array"
+        },
+        "queries": {
+          "items": {
+            "$ref": "#/$defs/FieldPitfallQuery"
+          },
+          "title": "Queries",
+          "type": "array"
+        },
+        "pitfalls": {
+          "items": {
+            "$ref": "#/$defs/FieldPitfall"
+          },
+          "title": "Pitfalls",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "degraded": {
+          "default": false,
+          "title": "Degraded",
+          "type": "boolean"
+        },
+        "offline": {
+          "default": false,
+          "title": "Offline",
+          "type": "boolean"
+        },
+        "cache": {
+          "additionalProperties": true,
+          "title": "Cache",
+          "type": "object"
+        }
+      },
+      "title": "FieldPitfallReport",
+      "type": "object"
+    },
+    "FieldSection": {
+      "properties": {
+        "field_id": {
+          "title": "Field Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "level": {
+          "title": "Level",
+          "type": "integer"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field_id",
+        "name",
+        "level",
+        "description"
+      ],
+      "title": "FieldSection",
+      "type": "object"
+    },
+    "FinalJudgeReport": {
+      "description": "Serializable final-judge report embedded in the artifact.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "default": "",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "decision": {
+          "default": "insufficient_evidence",
+          "enum": [
+            "accepted",
+            "accepted_with_concerns",
+            "requires_reaudit",
+            "rejected",
+            "insufficient_evidence"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "model_summary": {
+          "additionalProperties": true,
+          "title": "Model Summary",
+          "type": "object"
+        },
+        "model_description": {
+          "default": "",
+          "title": "Model Description",
+          "type": "string"
+        },
+        "n_critics_evaluated": {
+          "default": 0,
+          "title": "N Critics Evaluated",
+          "type": "integer"
+        },
+        "min_required": {
+          "default": 0,
+          "title": "Min Required",
+          "type": "integer"
+        },
+        "code_verified_flags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Code Verified Flags",
+          "type": "array"
+        },
+        "vetoes": {
+          "items": {
+            "$ref": "#/$defs/JudgeFinding"
+          },
+          "title": "Vetoes",
+          "type": "array"
+        },
+        "veto_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Veto Reason"
+        },
+        "pending_reaudit": {
+          "items": {
+            "$ref": "#/$defs/JudgeFinding"
+          },
+          "title": "Pending Reaudit",
+          "type": "array"
+        },
+        "concerns": {
+          "items": {
+            "$ref": "#/$defs/JudgeFinding"
+          },
+          "title": "Concerns",
+          "type": "array"
+        },
+        "advisories": {
+          "items": {
+            "$ref": "#/$defs/JudgeFinding"
+          },
+          "title": "Advisories",
+          "type": "array"
+        },
+        "unverified_flags": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Unverified Flags",
+          "type": "array"
+        },
+        "unevaluated_critics": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unevaluated Critics",
+          "type": "array"
+        },
+        "missing_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Evidence",
+          "type": "array"
+        },
+        "devils_advocate_summary": {
+          "additionalProperties": true,
+          "title": "Devils Advocate Summary",
+          "type": "object"
+        },
+        "reaudit_instructions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Reaudit Instructions",
+          "type": "array"
+        },
+        "critics_run": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Critics Run",
+          "type": "array"
+        },
+        "tokens_used": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Used"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "report_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Path"
+        },
+        "fragment_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fragment Path"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "FinalJudgeReport",
+      "type": "object"
+    },
+    "GenerationValidationResult": {
+      "properties": {
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "verdict": {
+          "default": "insufficient",
+          "enum": [
+            "pass",
+            "refine",
+            "reject",
+            "insufficient"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/ValidationCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "missing_information": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Information",
+          "type": "array"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "model": {
+          "default": "",
+          "title": "Model",
+          "type": "string"
+        },
+        "corpus_version": {
+          "default": "",
+          "title": "Corpus Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hypothesis_id"
+      ],
+      "title": "GenerationValidationResult",
+      "type": "object"
+    },
+    "GenerationValidationSummary": {
+      "properties": {
+        "verdicts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Verdicts",
+          "type": "object"
+        }
+      },
+      "title": "GenerationValidationSummary",
+      "type": "object"
+    },
+    "HypothesisSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "method_family": {
+          "title": "Method Family",
+          "type": "string"
+        },
+        "claim_type": {
+          "title": "Claim Type",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "required_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Columns",
+          "type": "array"
+        },
+        "optional_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Optional Columns",
+          "type": "array"
+        },
+        "min_rows": {
+          "default": 1,
+          "title": "Min Rows",
+          "type": "integer"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "factors_used": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Factors Used",
+          "type": "array"
+        },
+        "source_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "code_path": {
+          "title": "Code Path",
+          "type": "string"
+        },
+        "code_sha256": {
+          "title": "Code Sha256",
+          "type": "string"
+        },
+        "generation_history": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Generation History",
+          "type": "array"
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionSection"
+        },
+        "critic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CriticSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "validation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValidationReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "generation_validation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenerationValidationResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "method_family",
+        "claim_type",
+        "code_path",
+        "code_sha256",
+        "execution"
+      ],
+      "title": "HypothesisSection",
+      "type": "object"
+    },
+    "JudgeFinding": {
+      "description": "One critic verdict, normalised by code before aggregation.",
+      "properties": {
+        "critic": {
+          "title": "Critic",
+          "type": "string"
+        },
+        "severity": {
+          "default": "none",
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "finding": {
+          "default": "",
+          "title": "Finding",
+          "type": "string"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        },
+        "suggested_fix": {
+          "default": "",
+          "title": "Suggested Fix",
+          "type": "string"
+        },
+        "falsification_test": {
+          "default": "",
+          "title": "Falsification Test",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "low",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "status": {
+          "default": "suspected",
+          "enum": [
+            "established",
+            "suspected"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "could_not_evaluate": {
+          "default": false,
+          "title": "Could Not Evaluate",
+          "type": "boolean"
+        },
+        "defect_class": {
+          "default": "other",
+          "enum": [
+            "model",
+            "evaluation_design",
+            "other"
+          ],
+          "title": "Defect Class",
+          "type": "string"
+        }
+      },
+      "required": [
+        "critic"
+      ],
+      "title": "JudgeFinding",
+      "type": "object"
+    },
+    "ModelSearchSection": {
+      "properties": {
+        "target_kind": {
+          "default": "continuous",
+          "title": "Target Kind",
+          "type": "string"
+        },
+        "metric": {
+          "default": "r2",
+          "title": "Metric",
+          "type": "string"
+        },
+        "selected_family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Family"
+        },
+        "selected_features": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Selected Features",
+          "type": "array"
+        },
+        "selected_metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Selected Metrics",
+          "type": "object"
+        },
+        "candidate_count": {
+          "default": 0,
+          "title": "Candidate Count",
+          "type": "integer"
+        },
+        "candidates": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "ModelSearchSection",
+      "type": "object"
+    },
+    "Provenance": {
+      "properties": {
+        "python": {
+          "title": "Python",
+          "type": "string"
+        },
+        "packages": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Packages",
+          "type": "object"
+        },
+        "corpus_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Corpus Version"
+        },
+        "git_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Git Commit"
+        }
+      },
+      "required": [
+        "python"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "QuerySection": {
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "query"
+      ],
+      "title": "QuerySection",
+      "type": "object"
+    },
+    "ResearchModelSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "family": {
+          "title": "Family",
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "predictors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Predictors",
+          "type": "array"
+        },
+        "mapped_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mapped Columns",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "applied": {
+          "default": false,
+          "title": "Applied",
+          "type": "boolean"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "document_id",
+        "family"
+      ],
+      "title": "ResearchModelSection",
+      "type": "object"
+    },
+    "ResearchRecordSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "abstract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstract"
+        },
+        "authors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authors",
+          "type": "array"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doi"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License"
+        },
+        "retrieved_at": {
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        },
+        "relevance": {
+          "default": 0.0,
+          "title": "Relevance",
+          "type": "number"
+        },
+        "also_seen_in": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Also Seen In",
+          "type": "array"
+        },
+        "cited_by_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cited By Count"
+        },
+        "author_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Author Ids",
+          "type": "array"
+        },
+        "author_h_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author H Index"
+        },
+        "author_citation_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author Citation Count"
+        },
+        "author_known": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author Known"
+        },
+        "venue_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Type"
+        },
+        "publisher": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publisher"
+        },
+        "metrics_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics Source"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "source_id",
+        "title",
+        "url",
+        "retrieved_at",
+        "query"
+      ],
+      "title": "ResearchRecordSection",
+      "type": "object"
+    },
+    "ResearchSection": {
+      "properties": {
+        "queries": {
+          "items": {
+            "$ref": "#/$defs/QuerySection"
+          },
+          "title": "Queries",
+          "type": "array"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/ResearchRecordSection"
+          },
+          "title": "Records",
+          "type": "array"
+        },
+        "cache": {
+          "additionalProperties": true,
+          "title": "Cache",
+          "type": "object"
+        },
+        "limited_mode": {
+          "default": false,
+          "title": "Limited Mode",
+          "type": "boolean"
+        },
+        "offline": {
+          "default": false,
+          "title": "Offline",
+          "type": "boolean"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "semantic_scraping": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticScrapingSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ResearchSection",
+      "type": "object"
+    },
+    "RunInfo": {
+      "properties": {
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "string"
+        },
+        "finished_at": {
+          "title": "Finished At",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "live",
+            "mock"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "tool_version": {
+          "title": "Tool Version",
+          "type": "string"
+        },
+        "models": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Models",
+          "type": "object"
+        }
+      },
+      "required": [
+        "run_id",
+        "started_at",
+        "finished_at",
+        "mode",
+        "seed",
+        "tool_version",
+        "models"
+      ],
+      "title": "RunInfo",
+      "type": "object"
+    },
+    "ScreenSection": {
+      "properties": {
+        "target_summary": {
+          "additionalProperties": true,
+          "title": "Target Summary",
+          "type": "object"
+        },
+        "missingness": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Missingness",
+          "type": "object"
+        },
+        "top_correlations": {
+          "items": {
+            "$ref": "#/$defs/CorrelationSection"
+          },
+          "title": "Top Correlations",
+          "type": "array"
+        },
+        "time_trend": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Trend"
+        }
+      },
+      "title": "ScreenSection",
+      "type": "object"
+    },
+    "SemanticScrapingComparisonSection": {
+      "properties": {
+        "left_id": {
+          "title": "Left Id",
+          "type": "string"
+        },
+        "right_id": {
+          "title": "Right Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "verdict": {
+          "default": "insufficient",
+          "title": "Verdict",
+          "type": "string"
+        },
+        "similarity": {
+          "default": 0.0,
+          "title": "Similarity",
+          "type": "number"
+        }
+      },
+      "required": [
+        "left_id",
+        "right_id",
+        "kind"
+      ],
+      "title": "SemanticScrapingComparisonSection",
+      "type": "object"
+    },
+    "SemanticScrapingCritiqueSection": {
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "verdict": {
+          "title": "Verdict",
+          "type": "string"
+        },
+        "corpus_version": {
+          "title": "Corpus Version",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "verdict",
+        "corpus_version"
+      ],
+      "title": "SemanticScrapingCritiqueSection",
+      "type": "object"
+    },
+    "SemanticScrapingDocumentSection": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "authors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authors",
+          "type": "array"
+        },
+        "year": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Year"
+        },
+        "credibility": {
+          "default": 0.0,
+          "title": "Credibility",
+          "type": "number"
+        },
+        "credible": {
+          "default": false,
+          "title": "Credible",
+          "type": "boolean"
+        },
+        "field_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Field Path",
+          "type": "array"
+        },
+        "critique_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Critique Verdict"
+        },
+        "comparisons": {
+          "default": 0,
+          "title": "Comparisons",
+          "type": "integer"
+        },
+        "preloaded": {
+          "default": false,
+          "title": "Preloaded",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "source",
+        "title"
+      ],
+      "title": "SemanticScrapingDocumentSection",
+      "type": "object"
+    },
+    "SemanticScrapingLinkSection": {
+      "properties": {
+        "from_id": {
+          "title": "From Id",
+          "type": "string"
+        },
+        "to_id": {
+          "title": "To Id",
+          "type": "string"
+        },
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_id",
+        "to_id",
+        "relation"
+      ],
+      "title": "SemanticScrapingLinkSection",
+      "type": "object"
+    },
+    "SemanticScrapingSection": {
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "documents": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingDocumentSection"
+          },
+          "title": "Documents",
+          "type": "array"
+        },
+        "links": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingLinkSection"
+          },
+          "title": "Links",
+          "type": "array"
+        },
+        "comparisons": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingComparisonSection"
+          },
+          "title": "Comparisons",
+          "type": "array"
+        },
+        "critiques": {
+          "items": {
+            "$ref": "#/$defs/SemanticScrapingCritiqueSection"
+          },
+          "title": "Critiques",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "stats": {
+          "additionalProperties": true,
+          "title": "Stats",
+          "type": "object"
+        }
+      },
+      "title": "SemanticScrapingSection",
+      "type": "object"
+    },
+    "TargetSection": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "source",
+        "confidence"
+      ],
+      "title": "TargetSection",
+      "type": "object"
+    },
+    "ValidationCheck": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "pass",
+          "enum": [
+            "pass",
+            "flag",
+            "fail",
+            "not_applicable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "severity": {
+          "default": "none",
+          "enum": [
+            "none",
+            "minor",
+            "major",
+            "fatal"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "citations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Citations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ValidationCheck",
+      "type": "object"
+    },
+    "ValidationIssue": {
+      "properties": {
+        "chunk": {
+          "default": "S0-how-to-use",
+          "title": "Chunk",
+          "type": "string"
+        },
+        "severity": {
+          "default": "minor",
+          "enum": [
+            "minor",
+            "major",
+            "fatal"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "finding": {
+          "title": "Finding",
+          "type": "string"
+        },
+        "evidence": {
+          "default": "",
+          "title": "Evidence",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        },
+        "fix": {
+          "default": "",
+          "title": "Fix",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding"
+      ],
+      "title": "ValidationIssue",
+      "type": "object"
+    },
+    "ValidationLayerReport": {
+      "properties": {
+        "layer": {
+          "title": "Layer",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "skipped",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "metrics": {
+          "additionalProperties": true,
+          "title": "Metrics",
+          "type": "object"
+        }
+      },
+      "required": [
+        "layer",
+        "status"
+      ],
+      "title": "ValidationLayerReport",
+      "type": "object"
+    },
+    "ValidationReport": {
+      "description": "One hypothesis's validation result, embedded in the artifact.",
+      "properties": {
+        "hypothesis_id": {
+          "title": "Hypothesis Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "error",
+          "enum": [
+            "passed",
+            "failed",
+            "partial",
+            "skipped",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "verdict": {
+          "default": "inconclusive",
+          "enum": [
+            "pass",
+            "fail",
+            "inconclusive"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "rows_used": {
+          "default": 0,
+          "title": "Rows Used",
+          "type": "integer"
+        },
+        "dropped_rows": {
+          "default": 0,
+          "title": "Dropped Rows",
+          "type": "integer"
+        },
+        "feature_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Feature Columns",
+          "type": "array"
+        },
+        "periods_per_year": {
+          "default": 1.0,
+          "title": "Periods Per Year",
+          "type": "number"
+        },
+        "periods_per_year_source": {
+          "default": "default",
+          "title": "Periods Per Year Source",
+          "type": "string"
+        },
+        "in_sample_fallback": {
+          "default": false,
+          "title": "In Sample Fallback",
+          "type": "boolean"
+        },
+        "has_fit_predict": {
+          "default": false,
+          "title": "Has Fit Predict",
+          "type": "boolean"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "layers": {
+          "items": {
+            "$ref": "#/$defs/ValidationLayerReport"
+          },
+          "title": "Layers",
+          "type": "array"
+        },
+        "dsr_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dsr Score"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Value"
+        },
+        "oos_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Oos Score"
+        },
+        "decay_rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decay Rate"
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tolerance"
+        },
+        "pss_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pss Message"
+        },
+        "runtime_ms": {
+          "default": 0,
+          "title": "Runtime Ms",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hypothesis_id"
+      ],
+      "title": "ValidationReport",
+      "type": "object"
+    },
+    "ValidationSummary": {
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        }
+      },
+      "title": "ValidationSummary",
+      "type": "object"
+    },
+    "VariantSection": {
+      "properties": {
+        "variants": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Variants",
+          "type": "array"
+        },
+        "jumbled_label_leak": {
+          "default": false,
+          "title": "Jumbled Label Leak",
+          "type": "boolean"
+        },
+        "pii_reliance": {
+          "default": false,
+          "title": "Pii Reliance",
+          "type": "boolean"
+        },
+        "verdict": {
+          "default": "insufficient",
+          "title": "Verdict",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "VariantSection",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "default": "1.5.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run": {
+      "$ref": "#/$defs/RunInfo"
+    },
+    "dataset": {
+      "$ref": "#/$defs/DatasetSection"
+    },
+    "classification": {
+      "$ref": "#/$defs/ClassificationSection"
+    },
+    "research": {
+      "$ref": "#/$defs/ResearchSection"
+    },
+    "factors": {
+      "items": {
+        "$ref": "#/$defs/FactorSection"
+      },
+      "title": "Factors",
+      "type": "array"
+    },
+    "screen": {
+      "$ref": "#/$defs/ScreenSection"
+    },
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/HypothesisSection"
+      },
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "critic_summary": {
+      "$ref": "#/$defs/CriticSummary"
+    },
+    "validation_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ValidationSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "generation_validation_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GenerationValidationSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "model_search": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelSearchSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "final_judge": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FinalJudgeReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "field_pitfalls": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FieldPitfallReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "variants": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VariantSection"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "research_models": {
+      "items": {
+        "$ref": "#/$defs/ResearchModelSection"
+      },
+      "title": "Research Models",
+      "type": "array"
+    },
+    "collection": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Collection"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    }
+  },
+  "required": [
+    "run",
+    "dataset",
+    "classification",
+    "research",
+    "screen",
+    "critic_summary",
+    "provenance"
+  ],
+  "title": "Artifact",
+  "type": "object"
+}

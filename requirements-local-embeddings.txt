@@ -1,0 +1,10 @@
+# Optional offline embeddings (no API key, no Gemini quota).
+#
+# The default potion-base-8M model is 256 dimensions, so set EMBED_DIMS=256 and
+# use a fresh cache/field store when switching from Gemini's 768-dimension
+# vectors:
+#
+#   pip install -r requirements-local-embeddings.txt
+#   $env:WHACK26_EMBED_PROVIDER = "local"
+#   $env:EMBED_DIMS = "256"
+model2vec>=0.10,<0.11

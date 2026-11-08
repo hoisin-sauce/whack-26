@@ -1,0 +1,1092 @@
+"""End-to-end run orchestration: classify through artifact and preview."""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Callable, Sequence
+
+from . import __version__
+from .artifact import Artifact, RunInfo, build_artifact, validate_artifact, write_artifact
+from .classify import Classifier
+from .common import redact_secrets, utc_now_iso
+from .config import Settings
+from .critic import CorpusError, CriticResult, load_corpus, run_critic
+from .embeddings import build_embedding_client
+from .factors import FactorExtraction, extract_factors
+from .hypotheses import HypothesisContext, HypothesisGenerator, HypothesisSet
+from .hypotheses.context import build_context_pack
+from .hypotheses.variants import (
+    VariantReport,
+    aggregate_variant_reports,
+    build_variants,
+    evaluate_hypothesis_variants,
+)
+from .ids import run_id
+from .io import read_dataset
+from .llm import build_llm_client
+from .model_search.pipeline import run_model_search
+from .pitfalls import FieldPitfallReport, run_field_pitfalls
+from .preview import render_scrape_preview, write_preview
+from .profile import build_profile, build_summary
+from .research.catalog import catalog_research_records
+from .research.pipeline import ResearchResult, refine_after_research, run_research
+from .research.scrape.models import ScrapeResult
+from .research.to_model import extract_research_models
+from .screen import build_screen
+from .store import FieldStore
+from .validation.collection import (
+    CollectionMetadata,
+    collection_to_json,
+    parse_collection_json,
+    redact_collection,
+)
+from .validation.generation import GenerationValidator
+from .validation.generation_models import GenerationValidationResult
+from .validation.models import (
+    ValidationConfig,
+    ValidationReport,
+    error_report,
+    summary_counts,
+)
+
+
+class RunError(RuntimeError):
+    """A run failure that should be reported without a traceback."""
+
+
+@dataclass
+class RunOutcome:
+    run_dir: Path
+    artifact: Artifact
+    artifact_path: Path
+    preview_path: Path
+    scrape: ScrapeResult | None = None
+    scrape_md_path: Path | None = None
+    validations: dict[str, ValidationReport] = field(default_factory=dict)
+    generation_validations: dict[str, GenerationValidationResult] = field(
+        default_factory=dict
+    )
+    model_search: Any | None = None
+    final_judge: Any | None = None
+    variants: Any | None = None
+    field_pitfalls: FieldPitfallReport | None = None
+
+
+class _RunLog:
+    def __init__(self, path: Path, sink: Callable[[str], None] | None) -> None:
+        self.path = path
+        self.sink = sink
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    def __call__(self, message: str) -> None:
+        line = f"{utc_now_iso()} {redact_secrets(message)}"
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+        if self.sink is not None:
+            self.sink(line)
+
+
+def _model_names(settings: Settings) -> dict[str, str]:
+    return {
+        "llm": settings.llm_model_name,
+        "embedding": f"{settings.embed_model_name}@{settings.embed_dims}",
+    }
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _variant_target_kind(screen: Any, model_search: Any | None) -> str | None:
+    """Return the target kind used to pick a variant scoring metric."""
+    if model_search is not None:
+        kind = getattr(model_search, "target_kind", None)
+        if kind:
+            return str(kind)
+    kind = getattr(getattr(screen, "target", None), "kind", None)
+    if kind == "numeric":
+        return "continuous"
+    if kind == "categorical":
+        return "multiclass"
+    return None
+
+
+def _research_payload(research: ResearchResult) -> dict[str, Any]:
+    return {
+        "queries": [query.model_dump(mode="json") for query in research.queries],
+        "records": [record.model_dump(mode="json") for record in research.records],
+        "keywords": list(research.keywords),
+        "sources_used": list(research.sources_used),
+        "limited_mode": research.limited_mode,
+        "offline": research.offline,
+        "cache": dict(research.cache),
+        "warnings": list(research.warnings),
+    }
+
+
+def _warning_list(*groups: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for group in groups:
+        for raw in group:
+            text = str(raw).strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(text)
+    return result
+
+
+def _scraped_evidence(scrape: ScrapeResult | None) -> list[Any]:
+    """Convert credible scraped documents into factor/hypothesis evidence rows."""
+    if scrape is None:
+        return []
+    evidence: list[Any] = []
+    for document in scrape.documents:
+        if not document.credible:
+            continue
+        year = None
+        if document.published_at:
+            match = re.match(r"(\d{4})", str(document.published_at))
+            if match:
+                year = int(match.group(1))
+        evidence.append(
+            SimpleNamespace(
+                id=document.id,
+                source=document.source,
+                year=year,
+                title=document.title,
+                abstract=document.summary,
+                url=document.canonical_url,
+                doi=document.metadata.get("doi"),
+            )
+        )
+    return evidence
+
+
+def _write_dataset_copy(frame: Any, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(destination, index=False, lineterminator="\n")
+
+
+def _record_search_sessions(
+    store: Any,
+    research: ResearchResult,
+    *,
+    session_id: str,
+    dataset_id: str,
+    embeddings: Any,
+    settings: Settings,
+    extra_documents: Sequence[Any] = (),
+) -> int:
+    """Record one Search document per query, with result links and an embedding."""
+    from .research.scrape.identity import url_hash
+    from .research.search_sessions import record_search_session
+
+    by_url: dict[str, str] = {}
+    for document in extra_documents:
+        digest = getattr(document, "url_hash", None)
+        if isinstance(digest, str) and digest:
+            by_url[digest] = document.id
+    for record in research.records:
+        try:
+            digest = url_hash(record.url)
+        except ValueError:
+            continue
+        document = store.find_document_by_url(digest)
+        if document is not None:
+            by_url.setdefault(digest, document.id)
+
+    recorded = 0
+    for query in research.queries:
+        matching = [
+            record
+            for record in research.records
+            if str(record.query or "") == query.query
+        ]
+        result_ids: list[str] = []
+        for record in matching:
+            try:
+                digest = url_hash(record.url)
+            except ValueError:
+                continue
+            identifier = by_url.get(digest)
+            if identifier and identifier not in result_ids:
+                result_ids.append(identifier)
+        embedding = None
+        try:
+            vectors = embeddings.embed([query.query])
+            if vectors:
+                embedding = [float(value) for value in vectors[0]]
+        except Exception:  # noqa: BLE001 - an unembedded search doc is still useful
+            embedding = None
+        record_search_session(
+            store,
+            query=query.query,
+            source=query.source,
+            session_id=session_id,
+            parameters={"rationale": query.rationale},
+            result_ids=result_ids,
+            result_count=len(matching),
+            dataset_ids=[dataset_id],
+            embedding=embedding,
+            embedding_model=(
+                f"{settings.embed_provider}@{settings.embed_dims}"
+                if embedding is not None
+                else ""
+            ),
+        )
+        recorded += 1
+    return recorded
+
+
+def run_pipeline(
+    *,
+    input_path: Path,
+    description: str | None = None,
+    source_site: str | None = None,
+    target: str | None = None,
+    seed: int = 0,
+    mock: bool = False,
+    offline: bool = False,
+    refresh: bool = False,
+    scrape: bool | None = None,
+    scrape_fetch: bool | None = None,
+    model_search: bool | None = None,
+    model_search_backend: str | None = None,
+    variants: bool | None = None,
+    field_pitfalls: bool | None = None,
+    validate_generation: bool | None = None,
+    final_judge: bool | None = None,
+    collection: Any | None = None,
+    validate: bool = False,
+    validation_config: ValidationConfig | None = None,
+    csv_sep: str = ",",
+    out_dir: Path | None = None,
+    store_path: Path | None = None,
+    settings: Settings | None = None,
+    llm: Any | None = None,
+    embeddings: Any | None = None,
+    log: Callable[[str], None] | None = None,
+) -> RunOutcome:
+    """Run every stage and write a self-contained run directory."""
+    started_at = utc_now_iso()
+    settings = settings or Settings.from_env(
+        mock=mock, offline=True if offline else None
+    )
+    if scrape is not None:
+        settings = settings.with_overrides(scrape_enabled=bool(scrape))
+    if model_search is not None:
+        settings = settings.with_overrides(model_search_enabled=bool(model_search))
+    if model_search_backend is not None:
+        settings = settings.with_overrides(
+            model_search_backend=str(model_search_backend)
+        )
+    if variants is not None:
+        settings = settings.with_overrides(variants_enabled=bool(variants))
+    if field_pitfalls is not None:
+        settings = settings.with_overrides(
+            field_pitfalls_enabled=bool(field_pitfalls)
+        )
+    if validate_generation is not None:
+        settings = settings.with_overrides(
+            generation_validation_enabled=bool(validate_generation)
+        )
+    if final_judge is not None:
+        settings = settings.with_overrides(final_judge_enabled=bool(final_judge))
+    if scrape_fetch is not None:
+        settings = settings.with_overrides(scrape_fetch_enabled=bool(scrape_fetch))
+    owns_llm = llm is None
+    owns_embeddings = embeddings is None
+    llm = llm if llm is not None else build_llm_client(settings)
+    embeddings = (
+        embeddings if embeddings is not None else build_embedding_client(settings)
+    )
+    scrape_result: ScrapeResult | None = None
+    model_search_result: Any | None = None
+    variant_set: Any | None = None
+    variant_frames: dict[str, Any] = {}
+    research_models: list[Any] = []
+    context_pack: Any | None = None
+    generation_validations: dict[str, GenerationValidationResult] = {}
+    final_judge_report: Any | None = None
+    field_pitfall_report: FieldPitfallReport | None = None
+    collection_metadata: CollectionMetadata | None = None
+    try:
+        loaded = read_dataset(input_path, target=target, csv_sep=csv_sep)
+        profile = build_profile(
+            loaded,
+            description=description,
+            source_site=source_site,
+            target=target,
+            llm=llm,
+        )
+        if collection is not None:
+            try:
+                if isinstance(collection, CollectionMetadata):
+                    collection_metadata = redact_collection(collection)
+                else:
+                    collection_metadata = redact_collection(
+                        parse_collection_json(collection)
+                    )
+            except Exception as exc:  # noqa: BLE001 - advisory metadata
+                collection_metadata = None
+        identifier = run_id(profile.dataset_id)
+        if out_dir is None:
+            run_dir = settings.runs_dir / identifier
+        else:
+            run_dir = Path(out_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        logger = _RunLog(run_dir / "logs" / "run.log", log)
+        if collection is not None and collection_metadata is None:
+            logger("collection_parse_failed; continuing without metadata")
+        logger(
+            f"run_start dataset={profile.dataset_id} rows={profile.rows} "
+            f"columns={len(profile.columns)} mode={'mock' if settings.mock else 'live'}"
+        )
+        _write_dataset_copy(loaded.frame, run_dir / "dataset.csv")
+        summary = build_summary(profile, loaded.frame)
+
+        try:
+            with FieldStore(
+                store_path or settings.fields_db,
+                dims=settings.embed_dims,
+                max_depth=settings.max_depth,
+            ) as store:
+                classifier = Classifier(
+                    llm=llm,
+                    embeddings=embeddings,
+                    store=store,
+                    settings=settings,
+                )
+                path = classifier.classify(profile, loaded.frame)
+                logger(
+                    "classify path="
+                    + " > ".join(path.names)
+                    + f" confidence={path.confidence:.3f}"
+                )
+                if collection_metadata is not None:
+                    try:
+                        store.set_collection(
+                            profile.dataset_id,
+                            collection_to_json(collection_metadata),
+                        )
+                        logger(
+                            "collection design=" + collection_metadata.design
+                        )
+                    except Exception as exc:  # noqa: BLE001 - advisory
+                        logger(
+                            f"collection_persist_failed "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                catalog_records: list[Any] = []
+                try:
+                    catalog_records = catalog_research_records(
+                        store,
+                        dataset_id=profile.dataset_id,
+                        embeddings=embeddings,
+                        limit=10,
+                    )
+                except Exception as exc:  # noqa: BLE001 - catalog lookup is advisory
+                    logger(
+                        f"catalog_lookup_failed {type(exc).__name__}: {exc}"
+                    )
+                logger(f"catalog_records={len(catalog_records)}")
+                research = run_research(
+                    profile=profile,
+                    summary=summary,
+                    path_names=path.names,
+                    llm=llm,
+                    embeddings=embeddings,
+                    settings=settings,
+                    cache_path=settings.research_db,
+                    offline=True if offline else None,
+                    refresh=refresh,
+                    catalog_records=catalog_records,
+                )
+                logger(
+                    f"research queries={len(research.queries)} "
+                    f"records={len(research.records)}"
+                )
+                try:
+                    recorded = _record_search_sessions(
+                        store,
+                        research,
+                        session_id=identifier,
+                        dataset_id=profile.dataset_id,
+                        embeddings=embeddings,
+                        settings=settings,
+                    )
+                    logger(f"search_documents={recorded}")
+                except Exception as exc:  # noqa: BLE001 - advisory
+                    research.warnings.append(
+                        f"search_sessions_failed: {type(exc).__name__}: {exc}"
+                    )
+                    logger(
+                        f"search_sessions_failed {type(exc).__name__}: {exc}"
+                    )
+                try:
+                    path = refine_after_research(
+                        classifier=classifier,
+                        profile=profile,
+                        frame=loaded.frame,
+                        path=path,
+                        result=research,
+                    )
+                except Exception as exc:  # noqa: BLE001 - keep the original path
+                    path.warnings.append(
+                        "refinement_failed: "
+                        f"{type(exc).__name__}: {exc}; kept the original path"
+                    )
+                    logger(f"refine_failed {type(exc).__name__}")
+                if path.refined_after_research:
+                    logger(
+                        "refine path="
+                        + " > ".join(path.names)
+                        + f" confidence={path.confidence:.3f}"
+                    )
+                if settings.variants_enabled:
+                    try:
+                        variant_set, variant_frames = build_variants(
+                            profile, loaded.frame, seed=seed
+                        )
+                        variant_set = VariantReport(
+                            variants=variant_set,
+                            seed=seed,
+                            target_column=(
+                                profile.target.name
+                                if profile.target is not None
+                                else None
+                            ),
+                        )
+                        _write_json(
+                            run_dir / "variants.json",
+                            variant_set.model_dump(mode="json"),
+                        )
+                        logger(
+                            "variants "
+                            + ", ".join(sorted(variant_frames))
+                        )
+                    except Exception as exc:  # noqa: BLE001 - advisory
+                        research.warnings.append(
+                            f"variants_failed: {type(exc).__name__}: {exc}"
+                        )
+                        logger(f"variants_failed {type(exc).__name__}: {exc}")
+                if settings.scrape_enabled:
+                    try:
+                        from .research.scrape.pipeline import run_semantic_scraping
+
+                        scrape_result = run_semantic_scraping(
+                            seeds=research.records,
+                            target=summary,
+                            store=store,
+                            llm=llm,
+                            embeddings=embeddings,
+                            settings=settings,
+                        )
+                        logger(
+                            f"scrape documents={len(scrape_result.documents)} "
+                            f"links={len(scrape_result.links)} "
+                            f"comparisons={len(scrape_result.comparisons)} "
+                            f"critiques={len(scrape_result.critiques)}"
+                        )
+                        for warning in scrape_result.warnings:
+                            logger(f"scrape_warning {warning}")
+                        try:
+                            recorded = _record_search_sessions(
+                                store,
+                                research,
+                                session_id=identifier,
+                                dataset_id=profile.dataset_id,
+                                embeddings=embeddings,
+                                settings=settings,
+                                extra_documents=scrape_result.documents,
+                            )
+                            logger(f"search_documents_updated={recorded}")
+                        except Exception as exc:  # noqa: BLE001 - advisory
+                            research.warnings.append(
+                                "search_sessions_update_failed: "
+                                f"{type(exc).__name__}: {exc}"
+                            )
+                    except Exception as exc:  # noqa: BLE001 - keep the run alive
+                        research.warnings.append(
+                            f"scrape_failed: {type(exc).__name__}: {exc}"
+                        )
+                        logger(f"scrape_failed {type(exc).__name__}: {exc}")
+        except Exception as exc:
+            logger(f"run_failed stage=classify_or_research {type(exc).__name__}: {exc}")
+            raise
+
+        evidence_records = _scraped_evidence(scrape_result) + list(research.records)
+        factors: FactorExtraction = extract_factors(
+            profile=profile,
+            summary=summary,
+            path_names=path.names,
+            records=evidence_records,
+            llm=llm,
+            embeddings=embeddings,
+            settings=settings,
+        )
+        logger(
+            f"factors total={len(factors.factors)} "
+            f"mapped={sum(1 for factor in factors.factors if factor.in_dataset)}"
+        )
+        screen = build_screen(profile, loaded.frame)
+        logger(f"screen warnings={len(screen.warnings)}")
+
+        if settings.field_pitfalls_enabled:
+            try:
+                field_pitfall_report = run_field_pitfalls(
+                    profile=profile,
+                    summary=summary,
+                    field_path=path.fields,
+                    settings=settings,
+                    existing_records=research.records,
+                    frame=loaded.frame,
+                    cache_path=settings.research_db,
+                    offline=True if offline else None,
+                    refresh=refresh,
+                )
+                _write_json(
+                    run_dir / "field_pitfalls.json",
+                    field_pitfall_report.model_dump(mode="json"),
+                )
+                logger(
+                    f"field_pitfalls count={len(field_pitfall_report.pitfalls)} "
+                    f"degraded={field_pitfall_report.degraded} "
+                    f"warnings={len(field_pitfall_report.warnings)}"
+                )
+                for warning in field_pitfall_report.warnings:
+                    research.warnings.append(f"field_pitfalls: {warning}")
+                    logger(f"field_pitfalls_warning {warning}")
+            except Exception as exc:  # noqa: BLE001 - pitfall search is advisory
+                research.warnings.append(
+                    f"field_pitfalls_failed: {type(exc).__name__}: {exc}"
+                )
+                logger(f"field_pitfalls_failed {type(exc).__name__}: {exc}")
+
+        corpus = None
+        try:
+            corpus = load_corpus(settings.corpus_path)
+        except CorpusError as exc:
+            logger(f"corpus_error {type(exc).__name__}: {exc}")
+
+        if settings.model_search_enabled:
+            try:
+                model_search_result = run_model_search(
+                    profile, loaded.frame, settings=settings
+                )
+                _write_json(
+                    run_dir / "model_search.json",
+                    model_search_result.model_dump(mode="json"),
+                )
+                logger(
+                    "model_search candidates="
+                    f"{len(model_search_result.candidates)} "
+                    f"selected="
+                    f"{getattr(getattr(model_search_result.selected, 'spec', None), 'family', None)}"
+                )
+                for warning in model_search_result.warnings:
+                    logger(f"model_search_warning {warning}")
+            except Exception as exc:  # noqa: BLE001 - advisory
+                research.warnings.append(
+                    f"model_search_failed: {type(exc).__name__}: {exc}"
+                )
+                logger(f"model_search_failed {type(exc).__name__}: {exc}")
+
+        try:
+            from .research.scrape.pipeline import _record_to_document
+
+            documents: list[Any] = []
+            if scrape_result is not None:
+                documents.extend(
+                    document
+                    for document in scrape_result.documents
+                    if document.kind in ("paper", "web") and document.credible
+                )
+            # One-hop research records are not credibility-scored unless
+            # scraping ran; they are still useful for research-to-model
+            # extraction, and the extraction guards reject unmapped models.
+            documents.extend(
+                _record_to_document(record) for record in research.records[:10]
+            )
+            documents = [
+                document
+                for document in documents
+                if document.kind in ("paper", "web")
+            ][:5]
+            with FieldStore(
+                store_path or settings.fields_db,
+                dims=settings.embed_dims,
+                max_depth=settings.max_depth,
+            ) as store:
+                if documents:
+                    # Research-model rows reference ``documents``; make sure
+                    # the one-hop candidates have a row before extraction.
+                    for document in documents:
+                        try:
+                            if store.get_document(document.id) is None:
+                                store.upsert_document(document)
+                        except Exception:  # noqa: BLE001 - extraction is advisory
+                            pass
+                    research_models = extract_research_models(
+                        documents,
+                        factors.factors,
+                        profile,
+                        llm,
+                        embeddings,
+                        settings,
+                        store=store,
+                    )
+                context_pack = build_context_pack(
+                    profile,
+                    summary,
+                    store=store,
+                    dataset_id=profile.dataset_id,
+                    field_path=path.fields,
+                    factors=factors.factors,
+                    research_models=research_models,
+                    model_candidates=model_search_result,
+                    screen=screen,
+                    corpus=corpus,
+                    field_pitfalls=(
+                        field_pitfall_report.pitfalls
+                        if field_pitfall_report
+                        else ()
+                    ),
+                )
+            _write_json(
+                run_dir / "research_models.json",
+                [item.model_dump(mode="json") for item in research_models],
+            )
+            logger(
+                f"research_models={len(research_models)} "
+                f"context_chars={len(context_pack.summary)}"
+            )
+        except Exception as exc:  # noqa: BLE001 - advisory
+            research.warnings.append(
+                f"context_failed: {type(exc).__name__}: {exc}"
+            )
+            logger(f"context_failed {type(exc).__name__}: {exc}")
+
+        context = HypothesisContext(
+            profile=profile,
+            summary=summary,
+            path_names=path.names,
+            factors=factors.factors,
+            records=evidence_records,
+            screen=screen,
+            model_search=model_search_result,
+            research_models=research_models,
+            variant_report=variant_set,
+            context_pack=context_pack,
+            collection=collection_metadata,
+        )
+        generator = HypothesisGenerator(
+            context=context,
+            llm=llm,
+            embeddings=embeddings,
+            run_dir=run_dir,
+            dataset_path=run_dir / "dataset.csv",
+            seed=seed,
+            settings=settings,
+        )
+        if settings.agent_loop_enabled:
+            from .hypotheses.agent_loop import ModelAgentLoop
+
+            def _propose(request: Any) -> Any:
+                feedback_text = None
+                feedback = request.feedback
+                if feedback is not None:
+                    pieces = [
+                        *list(getattr(feedback, "static_errors", []) or []),
+                        *list(getattr(feedback, "summary", "") and [feedback.summary] or []),
+                    ]
+                    if getattr(feedback, "execution_error", None):
+                        pieces.append(str(feedback.execution_error))
+                    for diagnostic in getattr(feedback, "diagnostics", []) or []:
+                        message = getattr(diagnostic, "message", "")
+                        if message:
+                            pieces.append(str(message))
+                    feedback_text = "\n".join(str(piece) for piece in pieces if piece)
+                return generator._ask(
+                    request.family,
+                    feedback=feedback_text,
+                    simpler=request.phase == "replace",
+                )
+
+            loop = ModelAgentLoop(
+                generator=_propose,
+                context=context,
+                settings=settings,
+                run_dir=run_dir,
+                dataset_path=run_dir / "dataset.csv",
+                seed=seed,
+                context_pack=context_pack,
+            )
+            hypotheses: HypothesisSet = loop.run()
+        else:
+            hypotheses = generator.generate()
+        logger(
+            "hypotheses "
+            + ", ".join(
+                f"{item.method_family}={item.execution.status}"
+                for item in hypotheses.hypotheses
+            )
+        )
+
+        per_hypothesis_variants: dict[str, VariantReport] = {}
+        if settings.variants_enabled and variant_set is not None and variant_frames:
+            reports: list[VariantReport] = []
+            target_kind = _variant_target_kind(screen, model_search_result)
+            for hypothesis in hypotheses.hypotheses:
+                try:
+                    report = evaluate_hypothesis_variants(
+                        hypothesis_id=hypothesis.id,
+                        module_path=run_dir / hypothesis.code_path,
+                        frames=variant_frames,
+                        variants=variant_set.variants,
+                        target_column=(
+                            profile.target.name
+                            if profile.target is not None
+                            else None
+                        ),
+                        target_kind=target_kind,
+                        run_dir=run_dir,
+                        required_columns=hypothesis.draft.required_columns,
+                        optional_columns=hypothesis.draft.optional_columns,
+                        seed=seed,
+                    )
+                except Exception as exc:  # noqa: BLE001 - variant gate is advisory
+                    logger(
+                        f"variants_failed {hypothesis.id} "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    continue
+                per_hypothesis_variants[hypothesis.id] = report
+                reports.append(report)
+                logger(
+                    f"variants {hypothesis.id} verdict={report.verdict} "
+                    f"jumbled={report.jumbled_label_leak} "
+                    f"pii={report.pii_reliance}"
+                )
+            if reports:
+                variant_set = aggregate_variant_reports(
+                    variant_set.variants, reports
+                )
+                _write_json(
+                    run_dir / "variants.json",
+                    variant_set.model_dump(mode="json"),
+                )
+                if variant_set.jumbled_label_leak:
+                    research.warnings.append(
+                        "variant_leak: at least one hypothesis predicts "
+                        "jumbled labels above the leak threshold"
+                    )
+                if variant_set.pii_reliance:
+                    research.warnings.append(
+                        "variant_pii: at least one hypothesis relies on "
+                        "anonymized or dropped columns"
+                    )
+
+        if settings.generation_validation_enabled:
+            validator = GenerationValidator(
+                llm=llm,
+                embeddings=embeddings,
+                settings=settings,
+                corpus=corpus,
+            )
+            for hypothesis in hypotheses.hypotheses:
+                try:
+                    result = validator.validate(
+                        hypothesis,
+                        profile=profile,
+                        collection=collection_metadata,
+                        screen=screen,
+                        model_search=model_search_result,
+                        research_models=research_models,
+                        variant_report=per_hypothesis_variants.get(
+                            hypothesis.id, variant_set
+                        ),
+                        code_hash=hypothesis.code_sha256,
+                        data_hash=profile.sha256,
+                        seed=seed,
+                    )
+                except Exception as exc:  # noqa: BLE001 - advisory
+                    logger(
+                        f"generation_validation_failed {hypothesis.id} "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    continue
+                generation_validations[hypothesis.id] = result
+                logger(
+                    f"generation_validation {hypothesis.id} "
+                    f"verdict={result.verdict} issues={len(result.issues)}"
+                )
+            if generation_validations:
+                _write_json(
+                    run_dir / "generation_validation.json",
+                    {
+                        "schema_version": "1.0.0",
+                        "run_id": identifier,
+                        "generated_at": utc_now_iso(),
+                        "results": [
+                            result.model_dump(mode="json")
+                            for result in generation_validations.values()
+                        ],
+                    },
+                )
+
+        critics: list[CriticResult] = []
+        for hypothesis in hypotheses.hypotheses:
+            critic = run_critic(
+                hypothesis,
+                profile=profile,
+                summary=summary,
+                field_path=path.fields,
+                factors=factors.factors,
+                screen=screen,
+                research=evidence_records,
+                llm=llm,
+                embeddings=embeddings,
+                settings=settings,
+                corpus=corpus,
+                field_pitfalls=(
+                    field_pitfall_report.pitfalls if field_pitfall_report else ()
+                ),
+            )
+            critics.append(critic)
+            logger(f"critic {hypothesis.id} verdict={critic.verdict}")
+
+        finished_at = utc_now_iso()
+        warnings = _warning_list(
+            profile.warnings,
+            path.warnings,
+            research.warnings,
+            factors.warnings,
+            screen.warnings,
+            hypotheses.warnings,
+            scrape_result.warnings if scrape_result is not None else [],
+            [
+                f"critic_warning: {critic.hypothesis_id}: {warning}"
+                for critic in critics
+                for warning in critic.warnings
+            ],
+        )
+        validations: dict[str, ValidationReport] = {}
+        if validate:
+            from .validation.pipeline import validate_hypothesis
+
+            config = validation_config or ValidationConfig()
+            provisional = build_artifact(
+                run=RunInfo(
+                    run_id=identifier,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    mode="mock" if settings.mock else "live",
+                    seed=seed,
+                    tool_version=__version__,
+                    models=_model_names(settings),
+                ),
+                profile=profile,
+                classification=path,
+                research=research,
+                factors=factors.factors,
+                screen=screen,
+                hypotheses=hypotheses.hypotheses,
+                critics=critics,
+                warnings=warnings,
+                corpus_version=corpus.version if corpus is not None else None,
+                base_dir=settings.base_dir,
+                scrape=scrape_result,
+                model_search=model_search_result,
+                variants=variant_set,
+                research_models=research_models,
+                collection=(
+                    collection_metadata.model_dump(mode="json")
+                    if collection_metadata is not None
+                    else None
+                ),
+                field_pitfalls=field_pitfall_report,
+            )
+            for hypothesis in hypotheses.hypotheses:
+                section = next(
+                    (
+                        item
+                        for item in provisional.hypotheses
+                        if item.id == hypothesis.id
+                    ),
+                    None,
+                )
+                if section is None:
+                    continue
+                try:
+                    report = validate_hypothesis(
+                        section,
+                        run_dir=run_dir,
+                        artifact=provisional,
+                        config=config,
+                    )
+                except Exception as exc:  # noqa: BLE001 - validation is advisory
+                    report = error_report(
+                        hypothesis.id,
+                        f"validation failed: {type(exc).__name__}: {exc}",
+                    )
+                validations[hypothesis.id] = report
+                failed = ", ".join(report.failed_layers()) or "none"
+                logger(
+                    f"validation {hypothesis.id} status={report.status} "
+                    f"failed={failed}"
+                )
+            warnings = _warning_list(
+                warnings,
+                [
+                    f"validation_warning: {report_id}: {warning}"
+                    for report_id, report in validations.items()
+                    for warning in report.warnings
+                ],
+            )
+            try:
+                _write_json(
+                    run_dir / "validation.json",
+                    {
+                        "schema_version": "1.0.0",
+                        "run_id": identifier,
+                        "generated_at": utc_now_iso(),
+                        "config": config.as_dict(),
+                        "summary": summary_counts(list(validations.values())),
+                        "reports": [
+                            report.model_dump(mode="json")
+                            for report in validations.values()
+                        ],
+                    },
+                )
+            except OSError as exc:
+                logger(
+                    "validation_report_write_failed "
+                    f"{type(exc).__name__}: {exc}"
+                )
+        if settings.final_judge_enabled:
+            try:
+                from .final_judge.pipeline import run_final_judge
+                from .final_judge.report import write_reports
+
+                final_judge_report = run_final_judge(
+                    model_search=model_search_result,
+                    validation_reports=list(validations.values()),
+                    profile=profile,
+                    critics=critics,
+                    generation_validations=list(generation_validations.values()),
+                    variants=variant_set,
+                    collection=collection_metadata,
+                    factors=factors.factors,
+                    llm=llm,
+                    settings=settings,
+                )
+                report_paths = write_reports(run_dir, final_judge_report)
+                final_judge_report.report_path = report_paths["html"].name
+                final_judge_report.fragment_path = report_paths["fragment"].name
+                _write_json(
+                    run_dir / "final_judge.json",
+                    final_judge_report.model_dump(mode="json"),
+                )
+                logger(
+                    "final_judge decision="
+                    f"{final_judge_report.decision} "
+                    f"evaluated={final_judge_report.n_critics_evaluated}/"
+                    f"{final_judge_report.min_required}"
+                )
+            except Exception as exc:  # noqa: BLE001 - advisory
+                warnings = _warning_list(
+                    warnings,
+                    [f"final_judge_failed: {type(exc).__name__}: {exc}"],
+                )
+                logger(f"final_judge_failed {type(exc).__name__}: {exc}")
+        finished_at = utc_now_iso()
+        artifact = build_artifact(
+            run=RunInfo(
+                run_id=identifier,
+                started_at=started_at,
+                finished_at=finished_at,
+                mode="mock" if settings.mock else "live",
+                seed=seed,
+                tool_version=__version__,
+                models=_model_names(settings),
+            ),
+            profile=profile,
+            classification=path,
+            research=research,
+            factors=factors.factors,
+            screen=screen,
+            hypotheses=hypotheses.hypotheses,
+            critics=critics,
+            warnings=warnings,
+            corpus_version=corpus.version if corpus is not None else None,
+            base_dir=settings.base_dir,
+            scrape=scrape_result,
+            validations=validations or None,
+            generation_validations=generation_validations or None,
+            model_search=model_search_result,
+            final_judge=final_judge_report,
+            variants=variant_set,
+            research_models=research_models,
+            collection=(
+                collection_metadata.model_dump(mode="json")
+                if collection_metadata is not None
+                else None
+            ),
+            field_pitfalls=field_pitfall_report,
+        )
+        artifact_path = run_dir / "artifact.json"
+        write_artifact(artifact_path, artifact)
+        preview_path = run_dir / "preview.md"
+        write_preview(preview_path, artifact, base_dir=run_dir)
+        _write_json(run_dir / "research.json", _research_payload(research))
+        _write_json(
+            run_dir / "factors.json",
+            [factor.model_dump(mode="json") for factor in factors.factors],
+        )
+        if scrape_result is not None:
+            _write_json(
+                run_dir / "scrape.json",
+                scrape_result.model_dump(mode="json"),
+            )
+            scrape_md_path = run_dir / "scrape.md"
+            scrape_md_path.write_text(
+                render_scrape_preview(scrape_result), encoding="utf-8"
+            )
+        else:
+            scrape_md_path = None
+        logger(f"artifact {artifact_path.name} hypotheses={len(hypotheses.hypotheses)}")
+
+        loaded_artifact, errors = validate_artifact(artifact_path)
+        if errors or loaded_artifact is None:
+            for error in errors:
+                logger(f"artifact_invalid {error}")
+            raise RunError(
+                "the artifact failed handoff validation: " + "; ".join(errors[:5])
+            )
+        logger("run_done")
+        return RunOutcome(
+            run_dir=run_dir,
+            artifact=artifact,
+            artifact_path=artifact_path,
+            preview_path=preview_path,
+            scrape=scrape_result,
+            scrape_md_path=scrape_md_path,
+            validations=validations,
+            generation_validations=generation_validations,
+            model_search=model_search_result,
+            final_judge=final_judge_report,
+            variants=variant_set,
+            field_pitfalls=field_pitfall_report,
+        )
+    finally:
+        for client, owned in ((llm, owns_llm), (embeddings, owns_embeddings)):
+            if owned:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
